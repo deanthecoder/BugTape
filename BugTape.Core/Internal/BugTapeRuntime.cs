@@ -1,0 +1,313 @@
+// Code authored by Dean Edis (DeanTheCoder).
+// Anyone is free to copy, modify, use, compile, or distribute this software,
+// either in source code form or as a compiled binary, for any purpose.
+//
+// If you modify the code, please retain this copyright header,
+// and consider contributing back to the repository or letting us know
+// about your modifications. Your contributions are valued!
+//
+// THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+
+namespace BugTape.Core.Internal;
+
+internal sealed class BugTapeRuntime
+{
+    private readonly object m_sync = new object();
+    private readonly LinkedList<TimelineRecord> m_timeline = new LinkedList<TimelineRecord>();
+    private readonly List<StateProviderRegistration> m_stateProviders = new List<StateProviderRegistration>();
+    private readonly List<FileInfo> m_registeredFiles = new List<FileInfo>();
+    private readonly AsyncLocal<BugTapeActionScope> m_currentAction = new AsyncLocal<BugTapeActionScope>();
+    private readonly DataSnapshotter m_snapshotter;
+    private long m_sequence;
+    private long m_retainedBytes;
+    private bool m_shutdown;
+
+    public BugTapeRuntime(BugTapeOptions options)
+    {
+        Options = options;
+        m_snapshotter = new DataSnapshotter(options);
+        StartedUtc = DateTimeOffset.UtcNow;
+
+        AddRecord(new TimelineRecord
+        {
+            Type = "session-start",
+            Name = "Session.Start",
+            Data = m_snapshotter.Capture(new
+            {
+                options.ApplicationName,
+                options.ApplicationVersion,
+                options.SessionId
+            })
+        });
+    }
+
+    public BugTapeOptions Options { get; }
+
+    public DateTimeOffset StartedUtc { get; }
+
+    public bool IsActive
+    {
+        get
+        {
+            lock (m_sync)
+                return !m_shutdown;
+        }
+    }
+
+    public void Record(string name, object data)
+    {
+        EnsureActive();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("An event name is required.", nameof(name));
+
+        AddRecord(new TimelineRecord
+        {
+            Type = "event",
+            Name = m_snapshotter.CaptureText(name),
+            ActionId = m_currentAction.Value?.Id,
+            Data = m_snapshotter.Capture(data)
+        });
+    }
+
+    public void Log(BugTapeLogLevel level, string message, Exception exception, object data)
+    {
+        EnsureActive();
+        if (string.IsNullOrWhiteSpace(message))
+            throw new ArgumentException("A log message is required.", nameof(message));
+
+        AddRecord(new TimelineRecord
+        {
+            Type = "log",
+            Message = m_snapshotter.CaptureText(message),
+            Level = ToSerializedLevel(level),
+            ActionId = m_currentAction.Value?.Id,
+            Data = m_snapshotter.Capture(data),
+            Exception = m_snapshotter.CaptureException(exception)
+        });
+    }
+
+    public BugTapeActionScope StartAction(string name, object data)
+    {
+        EnsureActive();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("An action name is required.", nameof(name));
+
+        var parent = m_currentAction.Value;
+        var action = new BugTapeActionScope(
+            this,
+            Guid.NewGuid().ToString("N"),
+            m_snapshotter.CaptureText(name),
+            parent);
+
+        AddRecord(new TimelineRecord
+        {
+            Type = "action-start",
+            Name = action.Name,
+            ActionId = action.Id,
+            ParentActionId = parent?.Id,
+            Data = m_snapshotter.Capture(data),
+            Metrics = action.StartMetrics.ToStartJson()
+        });
+        m_currentAction.Value = action;
+
+        return action;
+    }
+
+    public void AddActionData(BugTapeActionScope action, string name, object value)
+    {
+        EnsureActive();
+        AddRecord(new TimelineRecord
+        {
+            Type = "action-data",
+            Name = m_snapshotter.CaptureText(name),
+            ActionId = action.Id,
+            Data = m_snapshotter.Capture(value)
+        });
+    }
+
+    public void EndAction(
+        BugTapeActionScope action,
+        string outcome,
+        double durationMilliseconds,
+        Exception exception,
+        string cancellationReason)
+    {
+        EnsureActive();
+
+        JToken data = null;
+        if (!string.IsNullOrWhiteSpace(cancellationReason))
+            data = m_snapshotter.Capture(new { Reason = cancellationReason });
+        var endMetrics = ProcessMetricsSnapshot.Capture();
+
+        AddRecord(new TimelineRecord
+        {
+            Type = "action-end",
+            Name = action.Name,
+            ActionId = action.Id,
+            ParentActionId = action.Parent?.Id,
+            Outcome = outcome,
+            DurationMilliseconds = durationMilliseconds,
+            Data = data,
+            Exception = m_snapshotter.CaptureException(exception),
+            Metrics = endMetrics.ToEndJson(action.StartMetrics, durationMilliseconds)
+        });
+
+        if (ReferenceEquals(m_currentAction.Value, action))
+            m_currentAction.Value = action.Parent;
+        else
+            ReportDiagnostic("An action scope was disposed out of order.");
+    }
+
+    public void RegisterStateProvider(
+        string name,
+        Func<CancellationToken, Task<object>> captureAsync)
+    {
+        EnsureActive();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("A state-provider name is required.", nameof(name));
+        if (captureAsync == null)
+            throw new ArgumentNullException(nameof(captureAsync));
+
+        lock (m_sync)
+        {
+            if (m_stateProviders.Exists(provider =>
+                    string.Equals(provider.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException(
+                    $"A state provider named '{name}' is already registered.");
+            }
+
+            m_stateProviders.Add(new StateProviderRegistration
+            {
+                Name = name,
+                CaptureAsync = captureAsync
+            });
+        }
+    }
+
+    public void RegisterFile(FileInfo file)
+    {
+        EnsureActive();
+        if (file == null)
+            throw new ArgumentNullException(nameof(file));
+
+        lock (m_sync)
+            m_registeredFiles.Add(new FileInfo(file.FullName));
+    }
+
+    public void Shutdown()
+    {
+        lock (m_sync)
+        {
+            if (m_shutdown)
+                return;
+
+            AddRecord(new TimelineRecord
+            {
+                Type = "session-end",
+                Name = "Session.End",
+                Data = m_snapshotter.Capture(new { Clean = true })
+            });
+
+            m_shutdown = true;
+        }
+    }
+
+    public IReadOnlyCollection<TimelineRecord> SnapshotTimeline()
+    {
+        EnsureActive();
+        lock (m_sync)
+            return new List<TimelineRecord>(m_timeline);
+    }
+
+    public IReadOnlyCollection<StateProviderRegistration> SnapshotStateProviders()
+    {
+        EnsureActive();
+        lock (m_sync)
+            return new List<StateProviderRegistration>(m_stateProviders);
+    }
+
+    public IReadOnlyCollection<FileInfo> SnapshotRegisteredFiles()
+    {
+        EnsureActive();
+        lock (m_sync)
+            return new List<FileInfo>(m_registeredFiles);
+    }
+
+    public JToken CaptureState(object value)
+    {
+        return m_snapshotter.Capture(value);
+    }
+
+    private void AddRecord(TimelineRecord record)
+    {
+        record.Sequence = Interlocked.Increment(ref m_sequence);
+        record.TimestampUtc = DateTimeOffset.UtcNow;
+        record.Measure();
+
+        lock (m_sync)
+        {
+            if (m_shutdown)
+                throw new InvalidOperationException("BugTape has been shut down.");
+
+            m_timeline.AddLast(record);
+            m_retainedBytes += record.SerializedByteCount;
+
+            while (m_timeline.Count > Options.MaxRetainedEventCount ||
+                   m_retainedBytes > Options.MaxRetainedPayloadBytes)
+            {
+                var first = m_timeline.First;
+                if (first == null)
+                    break;
+
+                m_timeline.RemoveFirst();
+                m_retainedBytes -= first.Value.SerializedByteCount;
+            }
+        }
+    }
+
+    private void EnsureActive()
+    {
+        lock (m_sync)
+        {
+            if (m_shutdown)
+                throw new InvalidOperationException("BugTape has been shut down.");
+        }
+    }
+
+    private void ReportDiagnostic(string message)
+    {
+        try
+        {
+            Options.DiagnosticMessageHandler?.Invoke(message);
+        }
+        catch
+        {
+            // Host diagnostics must never interfere with recording.
+        }
+    }
+
+    private static string ToSerializedLevel(BugTapeLogLevel level)
+    {
+        switch (level)
+        {
+            case BugTapeLogLevel.Debug:
+                return "debug";
+            case BugTapeLogLevel.Information:
+                return "information";
+            case BugTapeLogLevel.Warning:
+                return "warning";
+            case BugTapeLogLevel.Error:
+                return "error";
+            default:
+                throw new ArgumentOutOfRangeException(nameof(level), level, null);
+        }
+    }
+}

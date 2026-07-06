@@ -1,0 +1,136 @@
+// Code authored by Dean Edis (DeanTheCoder).
+// Anyone is free to copy, modify, use, compile, or distribute this software,
+// either in source code form or as a compiled binary, for any purpose.
+//
+// If you modify the code, please retain this copyright header,
+// and consider contributing back to the repository or letting us know
+// about your modifications. Your contributions are valued!
+//
+// THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+
+using Newtonsoft.Json.Linq;
+using Recorder = global::BugTape.BugTape;
+
+namespace BugTape.Core.Tests;
+
+[NonParallelizable]
+public class ExportTests
+{
+    private TestDirectory m_testDirectory;
+
+    [SetUp]
+    public void SetUp()
+    {
+        Recorder.ResetForTests();
+        m_testDirectory = new TestDirectory();
+        Recorder.Initialize(new BugTapeOptions
+        {
+            ApplicationName = "BugTape Tests",
+            ApplicationVersion = "1.2.3",
+            CompanyName = "Example Company"
+        });
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        Recorder.ResetForTests();
+        m_testDirectory.Dispose();
+    }
+
+    [Test]
+    public async Task ExportCapturesCurrentFileAndStateAtExportTime()
+    {
+        var sourceFile = m_testDirectory.GetFile("application.log");
+        await File.WriteAllTextAsync(sourceFile.FullName, "Before registration");
+
+        Recorder.RegisterFile(sourceFile);
+        Recorder.RegisterStateProvider("application", () => new
+        {
+            Mode = "Ready",
+            ItemCount = 3
+        });
+
+        await File.WriteAllTextAsync(sourceFile.FullName, "At export");
+
+        var outputDirectory = m_testDirectory.GetDirectory("output");
+        var files = await Recorder.CreateSupportPackFilesAsync(outputDirectory);
+
+        var copiedFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-files", "application.log"));
+        var stateFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-state-application.json"));
+
+        Assert.That(files.Select(file => file.FullName), Does.Contain(copiedFile.FullName));
+        Assert.That(await File.ReadAllTextAsync(copiedFile.FullName), Is.EqualTo("At export"));
+
+        var state = JObject.Parse(await File.ReadAllTextAsync(stateFile.FullName));
+        Assert.That(state.Value<string>("Mode"), Is.EqualTo("Ready"));
+        Assert.That(state.Value<int>("ItemCount"), Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task ProviderFailureIsRecordedWithoutAbortingExport()
+    {
+        Recorder.RegisterStateProvider(
+            "broken",
+            () => throw new InvalidOperationException("Expected failure."));
+
+        var outputDirectory = m_testDirectory.GetDirectory("output");
+        await Recorder.CreateSupportPackFilesAsync(outputDirectory);
+
+        var manifestFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-manifest.json"));
+        var manifest = JObject.Parse(await File.ReadAllTextAsync(manifestFile.FullName));
+
+        Assert.That(manifest.SelectToken("failures[0].source")?.Value<string>(), Is.EqualTo("state-provider"));
+        Assert.That(manifest.SelectToken("failures[0].name")?.Value<string>(), Is.EqualTo("broken"));
+        Assert.That(
+            manifest.SelectToken("failures[0].errorType")?.Value<string>(),
+            Is.EqualTo(typeof(InvalidOperationException).FullName));
+    }
+
+    [Test]
+    public async Task NullStateIsExportedAsJsonNull()
+    {
+        Recorder.RegisterStateProvider("empty", () => null);
+        var outputDirectory = m_testDirectory.GetDirectory("output");
+
+        await Recorder.CreateSupportPackFilesAsync(outputDirectory);
+
+        var stateFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-state-empty.json"));
+        Assert.That(
+            (await File.ReadAllTextAsync(stateFile.FullName)).Trim(),
+            Is.EqualTo("null"));
+    }
+
+    [Test]
+    public async Task MissingRegisteredFileIsReportedWithoutAbortingExport()
+    {
+        Recorder.RegisterFile(m_testDirectory.GetFile("missing.log"));
+        var outputDirectory = m_testDirectory.GetDirectory("output");
+
+        await Recorder.CreateSupportPackFilesAsync(outputDirectory);
+
+        var manifestFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-manifest.json"));
+        var manifest = JObject.Parse(await File.ReadAllTextAsync(manifestFile.FullName));
+
+        Assert.That(
+            manifest.SelectToken("failures[0].source")?.Value<string>(),
+            Is.EqualTo("registered-file"));
+        Assert.That(
+            manifest.SelectToken("failures[0].errorType")?.Value<string>(),
+            Is.EqualTo(typeof(FileNotFoundException).FullName));
+    }
+
+    [Test]
+    public void RegisterFileDoesNotRequireFileToExistImmediately()
+    {
+        var futureFile = m_testDirectory.GetFile("future.log");
+
+        Assert.That(() => Recorder.RegisterFile(futureFile), Throws.Nothing);
+    }
+
+}

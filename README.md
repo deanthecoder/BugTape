@@ -6,37 +6,36 @@ BugTape helps an application explain what happened before something went wrong. 
 
 It is intended to integrate with applications that already produce support packs containing logs and configuration. BugTape adds structured user actions, screenshots, application state, environment details, and a timeline that makes the collected evidence much easier to understand.
 
-## First Production Integration
+## First Integration
 
-For the first integration, point Codex at this README and the target desktop
+For an initial integration, point Codex at this README and the host desktop
 application with the following brief:
 
 > Read BugTape's README, then inspect this application's logging,
-> startup/shutdown, exception handling, WPF/Avalonia setup, document import
-> flow, and support-pack implementation. Do not change anything yet. Recommend
+> startup/shutdown, exception handling, WPF/Avalonia setup, representative user
+> workflows, and support-pack implementation. Do not change anything yet. Recommend
 > the smallest useful BugTape integration points, noting privacy, threading,
 > performance, and .NET Framework compatibility concerns.
 
 After reviewing the recommendations, implement one thin vertical slice:
 
 1. Create a minimal `BugTape.Core` support-pack builder.
-2. Register application state providers and existing-file contributors.
+2. Register application state providers and existing files.
 3. Forward the existing logger's logged event at its corresponding error,
    warning, information, or debug level.
-4. Wrap one useful workflow with `StartAction` or `Track`, such as document
-   import.
+4. Wrap one representative workflow with `StartAction` or `Track`.
 5. Include BugTape's generated manifest, state, and timeline files in the
    application's existing support pack.
 
-This should validate the public API against production application code before
+This should validate the public API against real application code before
 adding crash recovery, screenshots, broader automatic instrumentation, or
 viewer features.
 
-### First Integration Notes
+### Host-Owned Support Packs
 
-The first target application already has a support-package command, so BugTape
-should not replace that mechanism at first. It should produce additional files
-that the host application includes in its existing package.
+BugTape should not require an application to replace an existing support-package
+command. It can produce additional files that the host includes in its own
+package.
 
 Relevant host-application integration points to look for:
 
@@ -45,8 +44,8 @@ Relevant host-application integration points to look for:
   files that BugTape can reference or complement;
 - a live logger event that can be mirrored into BugTape's timeline;
 - application startup, shutdown, and unhandled-exception handlers;
-- a user-visible import, export, processing, or save operation that already
-  logs success and failure context;
+- a representative user-visible operation that already logs success and
+  failure context;
 - background processing tasks that can become later action boundaries once the
   first support-pack slice works.
 
@@ -54,17 +53,15 @@ Useful application state providers for the first pass:
 
 - application/product version, build configuration, culture, UI culture, and
   command-line mode;
-- active branding/product name, without copying style files into BugTape;
-- connected service count, service names or redacted identifiers, and
-  connection state;
-- work queue counts and current queue state;
-- active profile, workspace, or document summary, avoiding full user paths;
+- active feature and connection summaries using redacted identifiers;
+- current operation counts and processing state;
+- an active item summary that avoids full user paths;
 - BugTape self-diagnostics such as accepted records, dropped records, provider
   failures, and last export time.
 
-Avoid capturing licence keys, complete document paths, document contents, user
-file names unless explicitly redacted, passwords, tokens, connection strings,
-or arbitrary text-field contents.
+Avoid capturing licence keys, complete file paths, file contents, user file
+names unless explicitly redacted, passwords, tokens, connection strings, or
+arbitrary text-field contents.
 
 ### Relationship to Microsoft Diagnostics
 
@@ -87,7 +84,7 @@ the whole local support-pack workflow BugTape is aiming for.
   are too large and sensitive to be BugTape's default evidence format.
 
 BugTape's value is the product-owned policy and package: local export,
-application-specific contributors, privacy filtering, user inspectability,
+application-specific state and files, privacy filtering, user inspectability,
 timeline correlation, and resilience when individual diagnostics fail.
 
 ## The Idea
@@ -110,34 +107,24 @@ BugTape acts as a rolling flight recorder. Applications can record semantic brea
 - Displayed a warning.
 - Encountered an exception.
 
-When requested, BugTape combines its recent history with the application's existing diagnostic files and creates a `.zip` support pack.
+When requested, BugTape produces structured evidence files that the host
+application can include in its existing support package.
 
 ## Example Support Pack
 
 ```text
 support-pack.zip
-├── manifest.json
-├── timeline/
-│   └── events.jsonl
-├── logs/
-│   ├── application.log
-│   └── previous.log
-├── screenshots/
-│   ├── 2026-07-05T14-32-10Z.png
-│   └── 2026-07-05T14-33-02Z.png
-├── state/
-│   ├── application.json
-│   ├── active-project.json
-│   └── open-documents.json
-├── system/
-│   └── environment.json
-├── attachments/
-└── redaction-report.json
+├── bugtape-manifest.json
+├── bugtape-timeline.jsonl
+├── bugtape-state-application.json
+└── bugtape-files/
+    ├── application.log
+    └── previous.log
 ```
 
 The manifest describes the application, build, pack format, capture period, included components, and any collection failures.
 
-## Core Features
+## Product Direction
 
 - A bounded rolling event timeline with configurable memory and disk limits.
 - Semantic application breadcrumbs with structured metadata.
@@ -146,7 +133,7 @@ The manifest describes the application, build, pack format, capture period, incl
 - Application-defined state snapshots.
 - Build, operating-system, locale, runtime, and environment details.
 - Automatic exception and warning capture.
-- A contributor model so each application can add its own diagnostics.
+- Application-defined state and existing-file registration.
 - Redaction and screenshot masking for sensitive information.
 - A preview showing users what will be included.
 - A standalone viewer for navigating events, screenshots, logs, and state.
@@ -161,124 +148,143 @@ BugTape.RegisterStateProvider("active-project", () => new
     Project.Current?.IsModified
 });
 
-BugTape.Record("Connection attempted", new
+BugTape.Record("Connection.Attempted", new
 {
-    Server = Redact.Host(connection.Server),
+    Server = "[redacted-host]",
     connection.Protocol
 });
 
-BugTape.Record("Import completed", new
+BugTape.Record("Processing completed", new
 {
-    ImportedItems = result.Count,
+    ProcessedItems = result.Count,
     DurationMs = result.Duration.TotalMilliseconds
 });
 
-await BugTape.CreateSupportPackAsync("support-pack.zip");
+var files = await BugTape.CreateSupportPackFilesAsync(outputDirectory);
 ```
 
-Applications should be able to register arbitrary support-pack contributors:
+Existing files can be registered:
 
 ```csharp
-BugTape.RegisterContributor(new ExistingLogContributor(logDirectory));
-BugTape.RegisterContributor(new ConfigurationContributor(settings));
-BugTape.RegisterContributor(new DatabaseSummaryContributor(database));
+BugTape.RegisterFile(logFile);
 ```
 
-One broken contributor should not prevent the remainder of the support pack from being created. Collection failures should instead be recorded in the manifest.
+One missing or inaccessible file should not prevent the remaining BugTape files
+from being created. Collection failures are recorded in the manifest.
 
-## SDK API Checklist
+## Current Core API
 
-The first SDK pass should make the support-pack builder usable without requiring
-the flight recorder to be complete.
+The current `BugTape.Core` implementation provides a usable in-memory recorder
+and support-pack builder without crash recovery or UI-specific capture.
 
-Core setup:
+BugTape is a process-wide singleton exposed through the static `BugTape` class.
+Applications should not need to pass a recorder instance through their object
+graph. The implementation may use an internal instance to support isolation and
+testing, but it is not part of the normal application-facing API.
+
+Typical setup and use:
 
 ```csharp
+// Initialize BugTape once during application startup.
 BugTape.Initialize(new BugTapeOptions
 {
     ApplicationName = "Example Desktop App",
     ApplicationVersion = version,
-    DataDirectory = appDataDirectory,
     SessionId = Guid.NewGuid().ToString("N")
 });
 
-BugTape.ShutdownCleanly();
+// Include the application's existing log file whenever support-pack files are
+// created. Registration does not open, copy, watch, or parse the file now.
+BugTape.RegisterFile(logFile);
+
+// Capture this application-defined state when a support pack is requested.
+// Provider failures are reported in the manifest and do not abort the export.
+BugTape.RegisterStateProvider("application", () => GetApplicationState());
+
+// Record a named operation, its input metadata, duration, result, and any
+// correlated BugTape events or logs. TrackAsync marks the action as failed and
+// rethrows if ProcessAsync throws.
+var result = await BugTape.TrackAsync(
+    "File.Process",
+    () => ProcessAsync(sourceFile),
+    data: new
+    {
+        sourceFile.Name,
+        sourceFile.Length
+    });
+
+// Generate BugTape's manifest, timeline, state, and registered-file output for
+// inclusion in an existing application-owned support package.
+var files = await BugTape.CreateSupportPackFilesAsync(outputDirectory);
+
+// Mark a clean end to the session during normal application shutdown.
+BugTape.Shutdown();
 ```
 
 Minimum public API:
 
+- `BugTape.IsInitialized`
 - `BugTape.Initialize(BugTapeOptions options)`
-- `BugTape.ShutdownCleanly()`
+- `BugTape.Shutdown()`
 - `BugTape.Record(string name, object data = null)`
+- `BugTape.Log(Exception exception, string message = null,
+  object data = null)`
 - `BugTape.Log(BugTapeLogLevel level, string message, object data = null)`
 - `BugTape.Log(BugTapeLogLevel level, string message, Exception exception,
   object data = null)`
-- `BugTape.StartAction(string name, object data = null)`
+- `IRecordedAction BugTape.StartAction(string name, object data = null)`
 - `BugTape.Track(string name, Action action, object data = null)`
+- `BugTape.Track<T>(string name, Func<T> action, object data = null)`
 - `BugTape.TrackAsync(string name, Func<Task> action, object data = null)`
+- `BugTape.TrackAsync<T>(string name, Func<Task<T>> action,
+  object data = null)`
 - `BugTape.RegisterStateProvider(string name, Func<object> capture)`
-- `BugTape.RegisterContributor(IBugTapeContributor contributor)`
-- `BugTape.CreateSupportPackAsync(FileInfo destination)`
-- `BugTape.CreateSupportPackFilesAsync(DirectoryInfo destinationDirectory)`
+- `BugTape.RegisterStateProvider(string name,
+  Func<CancellationToken, Task<object>> captureAsync)`
+- `BugTape.RegisterFile(FileInfo file)`
+- `Task<IReadOnlyCollection<FileInfo>>
+  BugTape.CreateSupportPackFilesAsync(DirectoryInfo destinationDirectory,
+  CancellationToken cancellationToken = default)`
+
+`RegisterFile` registers an existing file for inclusion in future exports. It
+does not open, copy, monitor, tail, or parse the file at registration time.
+BugTape reads the file during export and records a non-fatal collection failure
+if it is missing, inaccessible, or changes while being copied. Registered files
+are subject to inclusion and size policy, but their contents are copied
+byte-for-byte by default; callers must redact sensitive file contents before
+registration in the current release. BugTape preserves the source filename and
+adds a numeric suffix if multiple registered files have the same name.
 
 `CreateSupportPackFilesAsync` is important for applications whose existing
-support-package command already owns the final zip. The method should return
+support-package command already owns the final zip. The method returns
 the files BugTape created, for example `bugtape-manifest.json`,
-`bugtape-timeline.jsonl`, `bugtape-state-application.json`, and
-`bugtape-redaction-report.json`, so the host application can include them via
-its existing extra-file hook.
+`bugtape-timeline.jsonl`, and `bugtape-state-application.json`, so the host
+application can include them via its existing extra-file hook.
 
-Suggested first interfaces:
-
-```csharp
-public interface IBugTapeContributor
-{
-    string Name { get; }
-    Task<IReadOnlyCollection<FileInfo>> CollectAsync(
-        DirectoryInfo destinationDirectory,
-        BugTapeExportContext context,
-        CancellationToken cancellationToken);
-}
-
-public interface IBugTapeAction : IDisposable
-{
-    string Id { get; }
-    void Add(string name, object value);
-    void Fail(Exception exception);
-    void Cancel(string reason = null);
-}
-```
-
-First built-in contributors:
-
-- `ExistingFileContributor`
-- `ExistingDirectoryContributor`
-- `JsonStateContributor`
-- `TimelineContributor`
-- `ManifestContributor`
-- `RedactionReportContributor`
-
-First options:
+Implemented options:
 
 - application name, version, company, environment, and session ID;
-- data directory for any temporary or later recovery files;
 - maximum retained event count and approximate payload bytes;
 - maximum string length, collection length, object depth, and event payload
   size;
-- before-record and before-export hooks for redaction or suppression;
-- clock abstraction for tests;
+- maximum registered-file size;
 - logger callback for BugTape self-diagnostics that must not feed back into
   the host application's log adapter.
 
-The first implementation can keep the timeline in memory and write JSON Lines
-only during export. A bounded crash-recovery journal can be added after a real
-host application integration proves the basic API shape.
+The current implementation keeps the bounded timeline in memory and writes JSON
+Lines during export. A crash-recovery journal remains a later addition.
+
+`Initialize` is thread-safe and may succeed only once for the active process
+session; a second call with different options throws a clear exception rather
+than silently replacing configuration. Recording before initialization also
+throws a clear exception. `Shutdown` is safe to call more than once, and
+recording after shutdown is rejected.
 
 ## Initial API Decisions
 
-The first intended integration is a production desktop application built with
-WPF or Avalonia. The API must remain application-neutral, but should make it
-easy to describe operations such as importing a document into a work queue.
+The intended integrations are desktop applications built with WPF or Avalonia.
+The API remains application-neutral while supporting arbitrary file and
+background-processing operations.
 
 ### Actions
 
@@ -289,7 +295,7 @@ disposable scope. Disposing the scope records a successful completion unless
 ```csharp
 var sourceFile = new FileInfo(path);
 
-using (var action = BugTape.StartAction("Document.Import", new
+using (var action = BugTape.StartAction("File.Process", new
 {
     FileName = sourceFile.Name,
     FileSizeBytes = sourceFile.Length
@@ -297,10 +303,10 @@ using (var action = BugTape.StartAction("Document.Import", new
 {
     try
     {
-        var document = await queue.ImportAsync(sourceFile.FullName);
+        var result = await processor.ProcessAsync(sourceFile.FullName);
 
-        action.Add("DocumentId", document.Id);
-        action.Add("PageCount", document.PageCount);
+        action.Add("ResultId", result.Id);
+        action.Add("ItemCount", result.ItemCount);
     }
     catch (Exception exception)
     {
@@ -310,10 +316,16 @@ using (var action = BugTape.StartAction("Document.Import", new
 }
 ```
 
-Action names such as `Document.Import` should be stable, application-defined
+Action names such as `File.Process` should be stable, application-defined
 identifiers. Human-readable messages and arbitrary structured data are stored
 separately. Events, logs, screenshots, metrics, and nested actions recorded
 inside the scope inherit its action/correlation ID.
+
+Action start and end records include lightweight process metrics: cumulative
+process CPU time, working-set bytes, private-memory bytes where supported, and
+managed-memory bytes. The end record also includes action CPU time, normalized
+average CPU percentage, and memory deltas. Metric collection is best-effort and
+must never fail the host action.
 
 `Track` and `TrackAsync` convenience methods should run a delegate, mark the
 action as failed if the delegate throws, and rethrow the exception. A plain
@@ -329,15 +341,15 @@ Logging is a first-class structured event source with levels for `Error`,
 `Warning`, `Information`, and `Debug`:
 
 ```csharp
-BugTape.Log(BugTapeLogLevel.Information, "Import started");
+BugTape.Log(BugTapeLogLevel.Information, "Processing started");
 BugTape.Log(BugTapeLogLevel.Warning, "Validation warning", data);
-BugTape.Log(BugTapeLogLevel.Error, "Import failed", exception);
+BugTape.Log(exception, "Processing failed");
 BugTape.Log(BugTapeLogLevel.Debug, "Parser selected", debugData);
 ```
 
 Applications with an existing logger can subscribe to its logged event and map
 each entry to `BugTape.Log`. The underlying log file can also be registered as
-a support-pack contributor. This preserves the authoritative log while allowing
+an existing support-pack file. This preserves the authoritative log while allowing
 important live entries to be correlated with actions. Adapters must guard
 against logging feedback loops.
 
@@ -348,7 +360,7 @@ object per line. This makes the file appendable, streamable, and more tolerant
 of a process ending during a write than a single large JSON array.
 
 ```json
-{"timestampUtc":"2026-07-05T14:32:10.1234567Z","type":"action-start","actionId":"42","name":"Document.Import"}
+{"timestampUtc":"2026-07-05T14:32:10.1234567Z","type":"action-start","actionId":"42","name":"File.Process"}
 {"timestampUtc":"2026-07-05T14:32:11.4560000Z","type":"log","actionId":"42","level":"warning","message":"Validation warning"}
 {"timestampUtc":"2026-07-05T14:32:13.7890000Z","type":"action-end","actionId":"42","outcome":"success"}
 ```
@@ -386,21 +398,18 @@ Serialized diagnostic data must not depend on the machine's locale:
 
 ### File and Directory Values
 
-BugTape's primary APIs and internal implementation should use `FileInfo` and
-`DirectoryInfo` for filesystem values. String overloads should remain available
-for convenience and compatibility, but should convert to `FileInfo` or
-`DirectoryInfo` at the API boundary:
+BugTape's public APIs and internal implementation use `FileInfo` and
+`DirectoryInfo` for filesystem values rather than raw path strings:
 
 ```csharp
-Task CreateSupportPackAsync(FileInfo destination);
-Task CreateSupportPackAsync(string destination);
+Task<IReadOnlyCollection<FileInfo>> CreateSupportPackFilesAsync(
+    DirectoryInfo destination);
 
-void RegisterLogFile(FileInfo file);
-void RegisterLogFile(string file);
+void RegisterFile(FileInfo file);
 ```
 
-The same rule applies to contributors, attachments, screenshot destinations,
-and export locations.
+The same rule applies to attachments, screenshot destinations, and export
+locations.
 
 ### Reliability, Retention, and Host Isolation
 
@@ -463,7 +472,7 @@ enforces limits for object depth, string length, collection length, and total
 payload size; handles cycles and throwing property getters; and reports
 truncation or serialization failure without affecting the host application.
 
-Paths, document names, workspace names, and other metadata may contain personal
+Paths, file names, entity names, and other metadata may contain personal
 or commercially sensitive information. The API should provide explicit privacy
 transformations such as `Sensitive`, `Redact`, `Hash`, and `FileNameOnly`. File
 contents and complete paths are not captured by default. Receiving a `FileInfo`
@@ -511,35 +520,29 @@ BugTape's distinguishing purpose is to keep this evidence local, combine it
 with application-defined support-pack material, and remain useful without a
 hosted telemetry service.
 
-Before-record and before-export processing hooks should allow applications to
+Future before-record and before-export processing hooks should allow applications to
 redact, transform, or discard records. Actions should eventually support links
-as well as parent/child relationships: for example, an import action can link
-to a later background-processing action. BugTape should also interoperate with
+as well as parent/child relationships: for example, one action can link to a
+later background-processing action. BugTape should also interoperate with
 `System.Diagnostics.Activity` when it is already in use, without requiring
 applications to instrument the same operation twice.
 
 Each run has a session ID plus explicit clean-start and clean-shutdown markers.
-These distinguish a crash from a machine restart or an export interrupted for
-another reason. BugTape also exposes small self-diagnostic counters such as
-records accepted, records dropped, serialization failures, journal failures,
-and last successful flush time.
+Once crash persistence is added, these will distinguish a crash from a machine
+restart or an export interrupted for another reason. Future self-diagnostic
+counters should include records accepted, records dropped, serialization
+failures, journal failures, and last successful flush time.
 
-### Recommended First Usable Slice
+### Next Production Slice
 
-The complete design is intentionally broader than the first release. The first
-production integration should concentrate on:
+After the current in-memory recorder has been exercised in a real application,
+the next production slice should concentrate on:
 
-- Initialization, options, session identity, and clean-shutdown detection.
-- `StartAction`, `Fail`, `Cancel`, `Track`, and `TrackAsync`.
-- Structured `Record`, `Log`, and exception capture.
-- Ambient correlation and stable sequence IDs.
 - A bounded memory buffer plus a small crash-recovery journal.
-- One resilient ZIP support-pack format containing a versioned JSON Lines
-  timeline, manifest, existing log files, and application-provided state.
-- UTC/locale-safe serialization, privacy processing hooks, and hard size limits.
-- `FileInfo` and `DirectoryInfo` primary APIs with string overloads.
 - Manual window-only screenshot capture for WPF and Avalonia, with explicit
   sensitive regions.
+- Privacy processing hooks and a useful redaction report.
+- Action-aware retention and dropped-record self-diagnostics.
 
 Automatic UI instrumentation, sophisticated screenshot masking, process
 metrics, log-storm deduplication, Activity/OpenTelemetry adapters, multiple
@@ -555,7 +558,7 @@ The platform-neutral foundation:
 
 - Timeline and ring buffer.
 - Event schema and serialization.
-- State-provider and contributor APIs.
+- State-provider and registered-file APIs.
 - Support-pack assembly.
 - Size and retention policies.
 - Redaction primitives.
@@ -597,14 +600,32 @@ Adapters for common .NET logging systems, allowing existing logs and selected st
 
 ### BugTape.Viewer
 
-A standalone desktop viewer for support packs:
+A standalone cross-platform viewer, likely built with Avalonia, should make it
+possible to scan an application session quickly rather than reading JSON and log
+files individually.
 
-- Chronological event timeline.
-- Screenshot preview synchronized with events.
-- Log filtering and search.
-- Application-state inspection and comparison.
-- Exception and warning markers.
-- Exportable summaries for support tickets.
+Its primary view should be a zoomable timeline covering the captured application
+lifetime:
+
+- Actions are duration bars from start to success, cancellation, failure, or an
+  incomplete end.
+- Nested and overlapping actions occupy separate rows or lanes so concurrency
+  remains visible.
+- Point-in-time events and log messages appear as markers on the same time axis.
+- Warnings and errors remain visually prominent at every zoom level and provide
+  useful navigation points.
+- Selecting an item shows its structured data, exception, process metrics, and
+  correlated records.
+- Search and filters can restrict the view by action name, event type, log
+  level, outcome, or time range.
+- A scrubber can synchronize the selected time with screenshots and captured
+  application state when those features exist.
+- Truncated history, missing action boundaries, and collection failures are
+  displayed explicitly rather than silently hidden.
+
+The viewer can also provide log text search, state inspection and comparison,
+and exportable incident summaries. It is a diagnostic navigator, not a
+requirement for deterministic replay.
 
 ## Privacy and Security
 
@@ -631,22 +652,22 @@ Events should be structured and versioned rather than stored only as prose:
 
 ```json
 {
-  "timestampUtc": "2026-07-05T14:32:10.123Z",
+  "schemaVersion": 1,
+  "timestampUtc": "2026-07-05T14:32:10.1230000Z",
   "sequence": 1842,
-  "category": "Connection",
-  "name": "ConnectionAttempted",
+  "type": "log",
   "message": "Connection attempted",
-  "severity": "Information",
-  "window": "ServerConfiguration",
-  "correlationId": "operation-42",
+  "level": "information",
+  "actionId": "operation-42",
   "data": {
     "server": "[redacted-host]",
-    "protocol": "OPC UA"
+    "protocol": "ExampleProtocol"
   }
 }
 ```
 
-JSON Lines (`.jsonl`) would allow events to be appended safely and processed without loading the entire timeline into memory.
+JSON Lines (`.jsonl`) allows events to be streamed and processed without
+loading the entire timeline into memory.
 
 ## Capture Strategy
 
@@ -663,43 +684,42 @@ Possible defaults:
 
 Screenshots and large attachments should be governed separately from lightweight timeline events.
 
-Optional process metrics should be sampled at a low configurable frequency.
-Cross-platform measurements can include process CPU usage, working set, and
-managed-memory usage. CPU can be derived from `Process.TotalProcessorTime`,
-elapsed wall time, and processor count on both Windows and macOS. Metrics use
-the same bounded retention policy as other timeline data.
+Action boundaries already capture process CPU usage, working set, private
+memory where available, and managed-memory usage. Optional low-frequency
+sampling may be added later for long-running actions where start/end snapshots
+cannot reveal a brief mid-action spike.
 
-For document-processing applications, useful application-defined fields include
-operation IDs, queue transitions, document metadata, processing phases, service
-state changes, durations, and result codes. Document contents, complete paths,
+Useful application-defined fields include operation IDs, state transitions,
+processing phases, durations, and result codes. File contents, complete paths,
 and personally identifying data remain excluded by default.
 
 ## Roadmap
 
-### Phase 1: Support-Pack Builder
+### Phase 1: Core Recorder and Support-Pack Builder
 
 - Contributor API.
 - Manifest and versioned pack format.
 - Existing log and attachment collection.
 - Application-state snapshots.
-- Redaction pipeline.
-- Resilient `.zip` creation.
+- Bounded in-memory timeline.
+- Actions, logging, exception capture, and async correlation.
+- Resilient generation of files for an application-owned support package.
 
-This phase is immediately useful even without automatic recording.
+This phase is implemented in `BugTape.Core`.
 
-### Phase 2: Flight Recorder
+### Phase 2: Crash and UI Capture
 
-- Bounded structured-event timeline.
-- Logging integration.
-- Exception capture.
 - Screenshot capture and masking.
 - Crash-safe persistence.
+- Redaction pipeline and preview.
 
 ### Phase 3: Support-Pack Viewer
 
-- Timeline, logs, screenshots, and state in one UI.
-- Search and filtering.
-- Correlation of screenshots and errors with preceding actions.
+- Avalonia-based zoomable application-lifetime timeline.
+- Separate lanes for nested and overlapping actions.
+- Prominent warning, error, failure, and incomplete-action markers.
+- Synchronized logs, screenshots, metrics, and state inspection.
+- Search, filtering, and rapid navigation between notable events.
 - Support-ticket summary export.
 
 ### Phase 4: Optional Replay
@@ -715,10 +735,10 @@ Replay should remain optional. Useful, privacy-conscious support packs provide s
 - **Useful by stages:** support-pack assembly should be valuable before advanced recording exists.
 - **Safe by default:** applications must opt into sensitive or detailed capture.
 - **Application-aware:** semantic breadcrumbs are more useful than raw mouse and keyboard events.
-- **Resilient:** diagnostic collection should continue when an individual contributor fails.
+- **Resilient:** diagnostic collection should continue when an individual source fails.
 - **Bounded:** recording must have predictable storage and performance costs.
 - **Inspectable:** users and support engineers should be able to see exactly what was captured.
-- **Extensible:** work applications can contribute their own state and existing diagnostic material.
+- **Extensible:** host applications can contribute their own state and existing diagnostic material.
 - **Local first:** creation and inspection should not require a hosted service.
 
 ## Potential Future Ideas
@@ -732,10 +752,15 @@ Replay should remain optional. Useful, privacy-conscious support packs provide s
 - Produce CI artifacts from failed UI tests.
 - Use application-specific viewers for specialised state.
 
-## Initial Goal
+## Current Milestone
 
-The first milestone should be deliberately small:
+The current milestone is deliberately small:
 
-> Allow a .NET desktop application to register diagnostic contributors and structured state providers, then reliably create a privacy-conscious, versioned support-pack `.zip`.
+> Allow a .NET desktop application to register existing diagnostic files and
+> structured state providers, then reliably create privacy-conscious,
+> versioned files for its existing support package.
 
-Once that foundation works inside a real application, the rolling timeline, screenshots, viewer, and possible replay features can grow around it.
+That foundation now includes a bounded in-memory timeline, actions, logging,
+exception capture, async correlation, registered files, state providers,
+and directory export. Crash recovery, screenshots, the viewer, and possible
+replay can grow around it.
