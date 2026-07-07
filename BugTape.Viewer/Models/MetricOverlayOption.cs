@@ -17,4 +17,8 @@ public sealed class MetricOverlayOption
     public string Label { get; init; } = string.Empty;
 
     public string Icon { get; init; } = string.Empty;
+
+    public string IconPath { get; init; } = string.Empty;
+
+    public string Brush { get; init; } = "#374151";
 }

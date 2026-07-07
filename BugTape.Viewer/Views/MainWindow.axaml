@@ -46,7 +46,7 @@
                               Height="24"
                               Stretch="Uniform"
                               Fill="#374151"
-                              Data="M3,5 L9,5 L11,7 L21,7 L21,19 L3,19 Z M5,9 L5,17 L19,17 L19,9 Z"/>
+                              Data="M10,4 L12,6 L20,6 C21.1,6 22,6.9 22,8 L22,18 C22,19.1 21.1,20 20,20 L4,20 C2.9,20 2,19.1 2,18 L2,6 C2,4.9 2.9,4 4,4 Z M4,8 L4,18 L20,18 L20,8 Z M14,10 L18,10 L18,12 L14,12 L14,15 L11,15 L11,12 L8,12 L8,10 L12,10 L12,7 L14,7 Z"/>
                     </Viewbox>
                 </Button>
                 <Button Grid.Column="3"
@@ -61,7 +61,7 @@
                               Height="24"
                               Stretch="Uniform"
                               Fill="#374151"
-                              Data="M6,2 L15,2 L20,7 L20,22 L6,22 Z M14,4 L14,8 L18,8 Z M9,5 L11,5 L11,7 L9,7 Z M11,7 L13,7 L13,9 L11,9 Z M9,9 L11,9 L11,11 L9,11 Z M11,11 L13,11 L13,13 L11,13 Z M9,13 L13,13 L13,19 L9,19 Z"/>
+                              Data="M14,2 L20,8 L20,20 C20,21.1 19.1,22 18,22 L6,22 C4.9,22 4,21.1 4,20 L4,4 C4,2.9 4.9,2 6,2 Z M13,4 L6,4 L6,20 L18,20 L18,9 L13,9 Z M12,4.5 L12,10 L17.5,10 Z M8,6 L10,6 L10,8 L8,8 Z M10,8 L12,8 L12,10 L10,10 Z M8,10 L10,10 L10,12 L8,12 Z M10,12 L12,12 L12,14 L10,14 Z M8,14 L12,14 L12,18 L8,18 Z"/>
                     </Viewbox>
                 </Button>
             </Grid>
@@ -100,15 +100,22 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding Icon}"
-                                        Tag="{Binding Key}"
+                                <Button Tag="{Binding Key}"
                                         Click="OnMetricOverlayClicked"
                                         ToolTip.Tip="{Binding Label}"
-                                        Padding="8,3"
-                                        MinWidth="28"
+                                        Padding="7,4"
+                                        MinWidth="30"
                                         Background="#f9fafb"
                                         BorderBrush="#d1d5db"
-                                        Foreground="#222831"/>
+                                        Foreground="#222831">
+                                    <Viewbox Width="18" Height="18">
+                                        <Path Width="24"
+                                              Height="24"
+                                              Stretch="Uniform"
+                                              Fill="{Binding Brush}"
+                                              Data="{Binding IconPath}"/>
+                                    </Viewbox>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -258,12 +265,10 @@
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Stretch"/>
 
-            <Grid Grid.Column="2" RowDefinitions="*,6,150">
-                <Border Grid.Row="0" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
-                    <Grid RowDefinitions="Auto,*">
-                        <TextBlock Grid.Row="0" Text="Details" Margin="12,10,12,6" FontWeight="SemiBold" Foreground="#222831"/>
-                        <TextBox Grid.Row="1"
-                                 Text="{Binding SelectedJson}"
+            <Border Grid.Column="2" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
+                <TabControl>
+                    <TabItem Header="Details">
+                        <TextBox Text="{Binding SelectedJson}"
                                  FontFamily="Consolas"
                                  FontSize="12"
                                  IsReadOnly="True"
@@ -272,31 +277,21 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  Margin="8"/>
-                    </Grid>
-                </Border>
-                <GridSplitter Grid.Row="1"
-                              Height="6"
-                              Background="#d1d5db"
-                              ResizeDirection="Rows"
-                              HorizontalAlignment="Stretch"
-                              VerticalAlignment="Stretch"/>
-
-                <Border Grid.Row="2" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4" Padding="12">
-                    <Grid RowDefinitions="Auto,*">
-                        <TextBlock Grid.Row="0" Text="Log Excerpt" FontWeight="SemiBold" Foreground="#222831"/>
-                        <ScrollViewer x:Name="LogExcerptScrollViewer"
-                                      Grid.Row="1"
-                                      Margin="0,8,0,0"
-                                      HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto">
-                            <TextBlock Text="{Binding SelectedLogExcerpt}"
-                                       FontFamily="Consolas"
-                                       FontSize="12"
-                                       TextWrapping="NoWrap"/>
-                        </ScrollViewer>
-                    </Grid>
-                </Border>
-            </Grid>
+                    </TabItem>
+                    <TabItem Header="Logs">
+                        <TextBox x:Name="LogExcerptTextBox"
+                                 Text="{Binding SelectedLogExcerpt}"
+                                 FontFamily="Consolas"
+                                 FontSize="12"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 Margin="8"/>
+                    </TabItem>
+                </TabControl>
+            </Border>
         </Grid>
 
         <Border Grid.Row="4" Background="#e7ebf0" Padding="12,5">

@@ -117,7 +117,9 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
-            LogExcerptScrollViewer.Offset = new Vector(0.0, 0.0);
+            LogExcerptTextBox.CaretIndex = 0;
+            LogExcerptTextBox.SelectionStart = 0;
+            LogExcerptTextBox.SelectionEnd = 0;
         });
     }
 }
