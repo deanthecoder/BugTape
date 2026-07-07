@@ -51,6 +51,19 @@ internal static class BugTapeExporter
             .ConfigureAwait(false);
         createdFiles.Add(timelineFile);
 
+        var metricSamples = runtime.SnapshotMetricSamples();
+        if (metricSamples.Count > 0)
+        {
+            var metricsFile = new FileInfo(
+                Path.Combine(destinationDirectory.FullName, "bugtape-metrics.jsonl"));
+            await WriteMetricSamplesAsync(
+                    metricsFile,
+                    metricSamples,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            createdFiles.Add(metricsFile);
+        }
+
         var stateFile = new FileInfo(
             Path.Combine(destinationDirectory.FullName, "bugtape-state.json"));
         var state = await CaptureStateProvidersAsync(
@@ -140,6 +153,25 @@ internal static class BugTapeExporter
         {
             cancellationToken.ThrowIfCancellationRequested();
             await writer.WriteLineAsync(record.Serialize(Formatting.None))
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WriteMetricSamplesAsync(
+        FileInfo file,
+        IReadOnlyCollection<MetricSample> samples,
+        CancellationToken cancellationToken)
+    {
+        using var stream = new FileStream(
+            file.FullName,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read);
+        using var writer = new StreamWriter(stream, s_utf8WithoutBom);
+        foreach (var sample in samples)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await writer.WriteLineAsync(sample.Serialize(Formatting.None).ToString(Formatting.None))
                 .ConfigureAwait(false);
         }
     }

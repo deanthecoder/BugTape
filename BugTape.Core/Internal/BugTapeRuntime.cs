@@ -21,12 +21,18 @@ internal sealed class BugTapeRuntime
 {
     private readonly object m_sync = new object();
     private readonly LinkedList<TimelineRecord> m_timeline = new LinkedList<TimelineRecord>();
+    private readonly LinkedList<MetricSample> m_metricSamples = new LinkedList<MetricSample>();
     private readonly List<StateProviderRegistration> m_stateProviders = new List<StateProviderRegistration>();
     private readonly List<FileInfo> m_registeredFiles = new List<FileInfo>();
     private readonly AsyncLocal<BugTapeActionScope> m_currentAction = new AsyncLocal<BugTapeActionScope>();
     private readonly DataSnapshotter m_snapshotter;
+    private readonly Timer m_metricsTimer;
     private long m_sequence;
+    private long m_metricSequence;
     private long m_retainedBytes;
+    private ProcessMetricsSnapshot m_lastMetricSnapshot;
+    private DateTimeOffset m_lastMetricSnapshotUtc;
+    private bool m_isSamplingMetrics;
     private bool m_shutdown;
 
     public BugTapeRuntime(BugTapeOptions options)
@@ -46,6 +52,15 @@ internal sealed class BugTapeRuntime
                 options.SessionId
             })
         });
+
+        if (options.MetricsSampleInterval != TimeSpan.Zero)
+        {
+            m_metricsTimer = new Timer(
+                CaptureMetricSample,
+                null,
+                TimeSpan.Zero,
+                options.MetricsSampleInterval);
+        }
     }
 
     public BugTapeOptions Options { get; }
@@ -217,6 +232,7 @@ internal sealed class BugTapeRuntime
             });
 
             m_shutdown = true;
+            m_metricsTimer?.Dispose();
         }
     }
 
@@ -239,6 +255,13 @@ internal sealed class BugTapeRuntime
         EnsureActive();
         lock (m_sync)
             return new List<FileInfo>(m_registeredFiles);
+    }
+
+    public IReadOnlyCollection<MetricSample> SnapshotMetricSamples()
+    {
+        EnsureActive();
+        lock (m_sync)
+            return new List<MetricSample>(m_metricSamples);
     }
 
     public JToken CaptureState(object value)
@@ -270,6 +293,63 @@ internal sealed class BugTapeRuntime
                 m_timeline.RemoveFirst();
                 m_retainedBytes -= first.Value.SerializedByteCount;
             }
+        }
+    }
+
+    private void CaptureMetricSample(object state)
+    {
+        try
+        {
+            DateTimeOffset now;
+            ProcessMetricsSnapshot previousSnapshot;
+            DateTimeOffset previousSnapshotUtc;
+            lock (m_sync)
+            {
+                if (m_shutdown || m_isSamplingMetrics)
+                    return;
+
+                m_isSamplingMetrics = true;
+                previousSnapshot = m_lastMetricSnapshot;
+                previousSnapshotUtc = m_lastMetricSnapshotUtc;
+            }
+
+            ProcessMetricsSnapshot snapshot;
+            try
+            {
+                now = DateTimeOffset.UtcNow;
+                snapshot = ProcessMetricsSnapshot.Capture();
+            }
+            finally
+            {
+                lock (m_sync)
+                    m_isSamplingMetrics = false;
+            }
+
+            var durationMilliseconds = previousSnapshot == null
+                ? 0
+                : Math.Max(0, (now - previousSnapshotUtc).TotalMilliseconds);
+            var sample = new MetricSample
+            {
+                Sequence = Interlocked.Increment(ref m_metricSequence),
+                TimestampUtc = now,
+                Metrics = snapshot.ToSampleJson(previousSnapshot, durationMilliseconds)
+            };
+
+            lock (m_sync)
+            {
+                if (m_shutdown)
+                    return;
+
+                m_lastMetricSnapshot = snapshot;
+                m_lastMetricSnapshotUtc = now;
+                m_metricSamples.AddLast(sample);
+                while (m_metricSamples.Count > Options.MaxRetainedMetricSampleCount)
+                    m_metricSamples.RemoveFirst();
+            }
+        }
+        catch (Exception exception)
+        {
+            ReportDiagnostic("Failed to capture process metrics: " + exception.Message);
         }
     }
 

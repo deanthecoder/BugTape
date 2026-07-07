@@ -40,9 +40,14 @@
                         Background="#f9fafb"
                         Foreground="#111827"
                         BorderBrush="#9ca3af"
-                        Padding="14,8"
-                        FontFamily="Segoe UI Symbol, Apple Color Emoji">
-                    <TextBlock Text="🗁" FontSize="18"/>
+                        Padding="10,7">
+                    <Viewbox Width="20" Height="20">
+                        <Path Width="24"
+                              Height="24"
+                              Stretch="Uniform"
+                              Fill="#374151"
+                              Data="M3,5 L9,5 L11,7 L21,7 L21,19 L3,19 Z M5,9 L5,17 L19,17 L19,9 Z"/>
+                    </Viewbox>
                 </Button>
                 <Button Grid.Column="3"
                         Click="OnOpenZipClicked"
@@ -50,9 +55,14 @@
                         Background="#f9fafb"
                         Foreground="#111827"
                         BorderBrush="#9ca3af"
-                        Padding="14,8"
-                        FontFamily="Segoe UI Symbol, Apple Color Emoji">
-                    <TextBlock Text="🗎" FontSize="18"/>
+                        Padding="10,7">
+                    <Viewbox Width="20" Height="20">
+                        <Path Width="24"
+                              Height="24"
+                              Stretch="Uniform"
+                              Fill="#374151"
+                              Data="M6,2 L15,2 L20,7 L20,22 L6,22 Z M14,4 L14,8 L18,8 Z M9,5 L11,5 L11,7 L9,7 Z M11,7 L13,7 L13,9 L11,9 Z M9,9 L11,9 L11,11 L9,11 Z M11,11 L13,11 L13,13 L11,13 Z M9,13 L13,13 L13,19 L9,19 Z"/>
+                    </Viewbox>
                 </Button>
             </Grid>
         </Border>
@@ -74,9 +84,35 @@
 
         <Border Grid.Row="2" Margin="14,0,14,8" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
             <Grid RowDefinitions="Auto,*">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="12,10,12,4">
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" Margin="12,10,12,4" ColumnSpacing="12">
                     <TextBlock Text="Timeline" FontWeight="SemiBold" Foreground="#222831"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding SelectedMetricSummary}"
+                               Foreground="#69707d"
+                               FontSize="12"
+                               VerticalAlignment="Center"/>
+                    <ItemsControl Grid.Column="2"
+                                  ItemsSource="{Binding MetricOptions}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="4"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Content="{Binding Icon}"
+                                        Tag="{Binding Key}"
+                                        Click="OnMetricOverlayClicked"
+                                        ToolTip.Tip="{Binding Label}"
+                                        Padding="8,3"
+                                        MinWidth="28"
+                                        Background="#f9fafb"
+                                        BorderBrush="#d1d5db"
+                                        Foreground="#222831"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12">
                         <TextBlock Text="logs" Foreground="#805ad5"/>
                         <TextBlock Text="actions" Foreground="#2563eb"/>
                         <TextBlock Text="events" Foreground="#4a5568"/>
@@ -91,6 +127,22 @@
                               Height="108"
                               Margin="12,0,12,12">
                     <Canvas Width="{Binding TimelineWidth}" Height="84" Background="#f8fafc">
+                        <ItemsControl ItemsSource="{Binding SelectedMetricSegments}" Width="{Binding TimelineWidth}" Height="84">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas Width="{Binding TimelineWidth}" Height="84" Background="Transparent"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Line StartPoint="{Binding StartPoint}"
+                                          EndPoint="{Binding EndPoint}"
+                                          Stroke="{Binding $parent[Window].DataContext.SelectedMetricBrush}"
+                                          StrokeThickness="2"
+                                          Opacity="0.75"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <ItemsControl ItemsSource="{Binding TimelineTicks}" Width="{Binding TimelineWidth}" Height="84">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

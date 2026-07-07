@@ -327,6 +327,12 @@ managed-memory bytes. The end record also includes action CPU time, normalized
 average CPU percentage, and memory deltas. Metric collection is best-effort and
 must never fail the host action.
 
+BugTape also samples process CPU and working-set memory periodically, every
+three seconds by default, into a bounded in-memory buffer. Applications can set
+`MetricsSampleInterval` to `TimeSpan.Zero` to disable this or adjust
+`MaxRetainedMetricSampleCount` to change the retained window. Exported support
+pack files include `bugtape-metrics.jsonl` when samples are available.
+
 `Track` and `TrackAsync` convenience methods should run a delegate, mark the
 action as failed if the delegate throws, and rethrow the exception. A plain
 disposable scope cannot reliably detect an exception escaping from a `using`
@@ -614,6 +620,8 @@ lifetime:
 - Point-in-time events and log messages appear as markers on the same time axis.
 - Warnings and errors remain visually prominent at every zoom level and provide
   useful navigation points.
+- A selectable metric underlay can show CPU percentage or working-set memory
+  beneath the timeline.
 - Selecting an item shows its structured data, exception, process metrics, and
   correlated records.
 - Search and filters can restrict the view by action name, event type, log
@@ -684,10 +692,12 @@ Possible defaults:
 
 Screenshots and large attachments should be governed separately from lightweight timeline events.
 
-Action boundaries already capture process CPU usage, working set, private
-memory where available, and managed-memory usage. Optional low-frequency
-sampling may be added later for long-running actions where start/end snapshots
-cannot reveal a brief mid-action spike.
+Action boundaries capture process CPU usage, working set, private memory where
+available, and managed-memory usage. Low-frequency periodic sampling captures
+CPU and working-set memory between actions. The viewer should interpolate
+between known metric points so older support packs with only action-boundary
+metrics still produce a useful trend, while newer packs with
+`bugtape-metrics.jsonl` produce a smoother graph.
 
 Useful application-defined fields include operation IDs, state transitions,
 processing phases, durations, and result codes. File contents, complete paths,
@@ -702,6 +712,7 @@ and personally identifying data remain excluded by default.
 - Existing log and attachment collection.
 - Application-state snapshots.
 - Bounded in-memory timeline.
+- Bounded periodic process metric sampling and `bugtape-metrics.jsonl` export.
 - Actions, logging, exception capture, and async correlation.
 - Resilient generation of files for an application-owned support package.
 
@@ -719,6 +730,7 @@ This phase is implemented in `BugTape.Core`.
 - Separate lanes for nested and overlapping actions.
 - Prominent warning, error, failure, and incomplete-action markers.
 - Synchronized logs, screenshots, metrics, and state inspection.
+- Interpolated CPU and memory metric underlays for the timeline.
 - Search, filtering, and rapid navigation between notable events.
 - Support-ticket summary export.
 

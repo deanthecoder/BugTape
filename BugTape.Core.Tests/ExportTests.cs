@@ -142,6 +142,34 @@ public class ExportTests
     }
 
     [Test]
+    public async Task ExportIncludesPeriodicMetricSamples()
+    {
+        Recorder.ResetForTests();
+        Recorder.Initialize(new BugTapeOptions
+        {
+            ApplicationName = "BugTape Tests",
+            MetricsSampleInterval = TimeSpan.FromMilliseconds(250),
+            MaxRetainedMetricSampleCount = 4
+        });
+        await Task.Delay(350);
+
+        var outputDirectory = m_testDirectory.GetDirectory("output");
+        var files = await Recorder.CreateSupportPackFilesAsync(outputDirectory);
+
+        var metricsFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-metrics.jsonl"));
+        Assert.That(files.Select(file => file.FullName), Does.Contain(metricsFile.FullName));
+
+        var firstLine = (await File.ReadAllLinesAsync(metricsFile.FullName)).First();
+        var sample = JObject.Parse(firstLine);
+        Assert.That(sample.Value<string>("timestampUtc"), Is.Not.Empty);
+        Assert.That(sample.Value<double?>("processCpuMilliseconds"), Is.Not.Null);
+        Assert.That(sample.Value<long?>("workingSetBytes"), Is.Not.Null);
+        Assert.That(sample["managedMemoryBytes"], Is.Null);
+        Assert.That(sample["privateMemoryBytes"], Is.Null);
+    }
+
+    [Test]
     public void RegisterFileDoesNotRequireFileToExistImmediately()
     {
         var futureFile = m_testDirectory.GetFile("future.log");

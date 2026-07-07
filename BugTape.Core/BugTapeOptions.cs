@@ -82,6 +82,20 @@ public sealed class BugTapeOptions
     public long MaxRegisteredFileBytes { get; set; } = 20 * 1024 * 1024;
 
     /// <summary>
+    /// Gets or sets how often process metrics are sampled.
+    /// </summary>
+    /// <remarks>
+    /// Set this to <see cref="TimeSpan.Zero" /> to disable periodic sampling.
+    /// Samples are retained in memory and exported for timeline graphing.
+    /// </remarks>
+    public TimeSpan MetricsSampleInterval { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Gets or sets the maximum number of periodic metric samples retained in memory.
+    /// </summary>
+    public int MaxRetainedMetricSampleCount { get; set; } = 3600;
+
+    /// <summary>
     /// Gets or sets a callback for BugTape's own non-fatal diagnostic messages.
     /// </summary>
     public Action<string> DiagnosticMessageHandler { get; set; }
@@ -104,6 +118,8 @@ public sealed class BugTapeOptions
             MaxCollectionLength = MaxCollectionLength,
             MaxObjectDepth = MaxObjectDepth,
             MaxRegisteredFileBytes = MaxRegisteredFileBytes,
+            MetricsSampleInterval = MetricsSampleInterval,
+            MaxRetainedMetricSampleCount = MaxRetainedMetricSampleCount,
             DiagnosticMessageHandler = DiagnosticMessageHandler
         };
     }
@@ -128,5 +144,11 @@ public sealed class BugTapeOptions
             throw new ArgumentOutOfRangeException(nameof(MaxObjectDepth));
         if (MaxRegisteredFileBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(MaxRegisteredFileBytes));
+        if (MetricsSampleInterval < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(MetricsSampleInterval));
+        if (MetricsSampleInterval != TimeSpan.Zero && MetricsSampleInterval < TimeSpan.FromMilliseconds(250))
+            throw new ArgumentOutOfRangeException(nameof(MetricsSampleInterval));
+        if (MaxRetainedMetricSampleCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxRetainedMetricSampleCount));
     }
 }

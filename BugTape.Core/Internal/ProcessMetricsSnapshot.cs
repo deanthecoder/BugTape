@@ -103,6 +103,45 @@ internal sealed class ProcessMetricsSnapshot
         return result;
     }
 
+    public JObject ToSampleJson(ProcessMetricsSnapshot previous, double durationMilliseconds)
+    {
+        var result = new JObject();
+        AddIfPresent(result, "processCpuMilliseconds", ProcessCpuMilliseconds);
+        AddIfPresent(result, "workingSetBytes", WorkingSetBytes);
+        if (previous == null)
+            return result;
+
+        AddDelta(
+            result,
+            "workingSetDeltaBytes",
+            previous.WorkingSetBytes,
+            WorkingSetBytes);
+        AddDelta(
+            result,
+            "privateMemoryDeltaBytes",
+            previous.PrivateMemoryBytes,
+            PrivateMemoryBytes);
+
+        if (previous.ProcessCpuMilliseconds.HasValue && ProcessCpuMilliseconds.HasValue)
+        {
+            var cpuMilliseconds = Math.Max(
+                0,
+                ProcessCpuMilliseconds.Value - previous.ProcessCpuMilliseconds.Value);
+            result["cpuMilliseconds"] = cpuMilliseconds;
+
+            if (durationMilliseconds > 0)
+            {
+                result["cpuPercent"] =
+                    cpuMilliseconds /
+                    durationMilliseconds /
+                    Math.Max(1, Environment.ProcessorCount) *
+                    100.0;
+            }
+        }
+
+        return result;
+    }
+
     private static double? TryRead(Func<double> capture)
     {
         try

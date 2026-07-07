@@ -9,8 +9,10 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using BugTape.Viewer.Models;
 using BugTape.Viewer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -21,6 +23,7 @@ namespace BugTape.Viewer.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase
 {
     private const double MarkerCanvasWidth = 1800.0;
+    private readonly List<MetricSeries> m_metricSeries = new List<MetricSeries>();
 
     [ObservableProperty]
     private string _packagePath = GetDefaultPackagePath();
@@ -46,7 +49,23 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private TimelineHighlight _selectedHighlight;
 
+    [ObservableProperty]
+    private string _selectedMetricKey = "none";
+
+    [ObservableProperty]
+    private string _selectedMetricSummary = "No metric overlay selected.";
+
+    [ObservableProperty]
+    private string _selectedMetricBrush = "#0ea5e9";
+
     public double TimelineWidth => MarkerCanvasWidth;
+
+    public ObservableCollection<MetricOverlayOption> MetricOptions { get; } = new ObservableCollection<MetricOverlayOption>
+    {
+        new MetricOverlayOption { Key = "none", Label = "None", Icon = "—" },
+        new MetricOverlayOption { Key = "cpu", Label = "CPU", Icon = "⚙" },
+        new MetricOverlayOption { Key = "working", Label = "Memory", Icon = "M" }
+    };
 
     public ObservableCollection<BugTapeRecord> Records { get; } = new();
 
@@ -55,6 +74,8 @@ public partial class MainWindowViewModel : ViewModelBase
     public ObservableCollection<TimelineTick> TimelineTicks { get; } = new();
 
     public ObservableCollection<TimelineTreeNode> TreeNodes { get; } = new();
+
+    public ObservableCollection<MetricSegment> SelectedMetricSegments { get; } = new();
 
     public MainWindowViewModel()
     {
@@ -73,6 +94,17 @@ public partial class MainWindowViewModel : ViewModelBase
                 Left = value.TimelineLeft,
                 Width = Math.Max(8.0, value.TimelineWidth)
             };
+    }
+
+    partial void OnSelectedMetricKeyChanged(string value)
+    {
+        UpdateSelectedMetric();
+    }
+
+    public void SelectMetric(string key)
+    {
+        SelectedMetricKey = string.IsNullOrWhiteSpace(key) ? "none" : key;
+        UpdateSelectedMetric();
     }
 
     [RelayCommand]
@@ -94,6 +126,10 @@ public partial class MainWindowViewModel : ViewModelBase
             foreach (var tick in session.Ticks)
                 TimelineTicks.Add(tick);
 
+            m_metricSeries.Clear();
+            m_metricSeries.AddRange(session.MetricSeries);
+            UpdateSelectedMetric();
+
             TreeNodes.Clear();
             foreach (var node in session.Tree)
                 TreeNodes.Add(node);
@@ -108,6 +144,8 @@ public partial class MainWindowViewModel : ViewModelBase
             Records.Clear();
             TimelineMarkers.Clear();
             TimelineTicks.Clear();
+            m_metricSeries.Clear();
+            UpdateSelectedMetric();
             TreeNodes.Clear();
             SelectedTreeNode = null;
             ManifestSummary = "No package loaded.";
@@ -124,5 +162,31 @@ public partial class MainWindowViewModel : ViewModelBase
             "Downloads",
             "SupportPackage");
         return Directory.Exists(downloads) ? downloads : string.Empty;
+    }
+
+    private void UpdateSelectedMetric()
+    {
+        if (SelectedMetricKey == "none")
+        {
+            SelectedMetricSegments.Clear();
+            SelectedMetricSummary = "No metric overlay selected.";
+            SelectedMetricBrush = "#0ea5e9";
+            return;
+        }
+
+        var series = m_metricSeries.FirstOrDefault(item => item.Key == SelectedMetricKey);
+        if (series == null || series.Segments.Count == 0)
+        {
+            SelectedMetricSegments.Clear();
+            SelectedMetricSummary = "No data for selected metric in this support package.";
+            SelectedMetricBrush = "#0ea5e9";
+            return;
+        }
+
+        SelectedMetricSegments.Clear();
+        foreach (var segment in series.Segments)
+            SelectedMetricSegments.Add(segment);
+        SelectedMetricSummary = series.Summary;
+        SelectedMetricBrush = series.Brush;
     }
 }

@@ -26,5 +26,7 @@ public sealed class BugTapeSession
 
     public IReadOnlyList<TimelineTick> Ticks { get; init; } = new List<TimelineTick>();
 
+    public IReadOnlyList<MetricSeries> MetricSeries { get; init; } = new List<MetricSeries>();
+
     public IReadOnlyList<TimelineTreeNode> Tree { get; init; } = new List<TimelineTreeNode>();
 }

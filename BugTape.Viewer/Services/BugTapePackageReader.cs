@@ -15,6 +15,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
+using Avalonia;
 using BugTape.Viewer.Models;
 
 namespace BugTape.Viewer.Services;
@@ -22,6 +23,7 @@ namespace BugTape.Viewer.Services;
 public static class BugTapePackageReader
 {
     private const double TimelineWidth = 1800.0;
+    private const double MetricsGraphHeight = 84.0;
     private const double MinimumActionWidth = 3.0;
     private const int MaximumExcerptLineCount = 80;
 
@@ -46,6 +48,7 @@ public static class BugTapePackageReader
     {
         var manifestFile = directory.GetFiles("bugtape-manifest.json", SearchOption.AllDirectories).FirstOrDefault();
         var timelineFile = directory.GetFiles("bugtape-timeline.jsonl", SearchOption.AllDirectories).FirstOrDefault();
+        var metricsFile = directory.GetFiles("bugtape-metrics.jsonl", SearchOption.AllDirectories).FirstOrDefault();
         var stateFile = directory.GetFiles("bugtape-state.json", SearchOption.AllDirectories).FirstOrDefault();
 
         if (manifestFile == null)
@@ -58,6 +61,9 @@ public static class BugTapePackageReader
         var records = ReadTimeline(timelineFile).OrderBy(record => record.Sequence).ToList();
         var logs = ReadLogs(directory, offset);
         PopulateTimelineRegions(records);
+        var metrics = metricsFile == null
+            ? CreateMetricSeries(records, ExtractRecordMetrics(records))
+            : CreateMetricSeries(records, ReadMetricSamples(File.ReadLines(metricsFile.FullName)));
 
         return new BugTapeSession
         {
@@ -67,6 +73,7 @@ public static class BugTapePackageReader
             Records = records,
             Markers = CreateMarkers(records, offset),
             Ticks = CreateTicks(records, offset),
+            MetricSeries = metrics,
             Tree = CreateTree(records, logs, offset)
         };
     }
@@ -76,6 +83,7 @@ public static class BugTapePackageReader
         using var archive = ZipFile.OpenRead(file.FullName);
         var manifestEntry = FindEntry(archive, "bugtape-manifest.json");
         var timelineEntry = FindEntry(archive, "bugtape-timeline.jsonl");
+        var metricsEntry = FindEntry(archive, "bugtape-metrics.jsonl");
         var stateEntry = FindEntry(archive, "bugtape-state.json");
 
         if (manifestEntry == null)
@@ -88,6 +96,9 @@ public static class BugTapePackageReader
         var records = ReadTimeline(ReadEntryText(timelineEntry)).OrderBy(record => record.Sequence).ToList();
         var logs = ReadLogs(archive, offset);
         PopulateTimelineRegions(records);
+        var metrics = metricsEntry == null
+            ? CreateMetricSeries(records, ExtractRecordMetrics(records))
+            : CreateMetricSeries(records, ReadMetricSamples(ReadEntryText(metricsEntry).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)));
 
         return new BugTapeSession
         {
@@ -97,6 +108,7 @@ public static class BugTapePackageReader
             Records = records,
             Markers = CreateMarkers(records, offset),
             Ticks = CreateTicks(records, offset),
+            MetricSeries = metrics,
             Tree = CreateTree(records, logs, offset)
         };
     }
@@ -141,6 +153,9 @@ public static class BugTapePackageReader
             var message = GetString(root, "message");
             var timestampText = GetString(root, "timestampUtc");
             var displayName = CreateDisplayName(root, type, name);
+            var metrics = root.TryGetProperty("metrics", out var metricsValue)
+                ? ReadMetricValues(metricsValue)
+                : new Dictionary<string, double>();
 
             yield return new BugTapeRecord
             {
@@ -157,8 +172,72 @@ public static class BugTapePackageReader
                     : DateTimeOffset.MinValue,
                 DurationMilliseconds = GetDouble(root, "durationMilliseconds"),
                 Summary = CreateSummary(type, displayName, level, outcome, message),
-                Json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true })
+                Json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true }),
+                MetricValues = metrics
             };
+        }
+    }
+
+    private static IReadOnlyList<MetricReading> ReadMetricSamples(IEnumerable<string> lines)
+    {
+        var result = new List<MetricReading>();
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            var timestampText = GetString(root, "timestampUtc");
+            if (!DateTimeOffset.TryParse(timestampText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var timestamp))
+                continue;
+
+            result.Add(new MetricReading
+            {
+                TimestampUtc = timestamp,
+                Values = ReadMetricValues(root)
+            });
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<MetricReading> ExtractRecordMetrics(IEnumerable<BugTapeRecord> records)
+    {
+        return records
+            .Where(record => record.TimestampUtc > DateTimeOffset.MinValue && record.MetricValues.Count > 0)
+            .Select(record => new MetricReading
+            {
+                TimestampUtc = record.TimestampUtc,
+                Values = record.MetricValues
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyDictionary<string, double> ReadMetricValues(JsonElement element)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (element.ValueKind != JsonValueKind.Object)
+            return result;
+
+        AddMetricValue(result, element, "cpuPercent");
+        AddMetricValue(result, element, "averageCpuPercent");
+        AddMetricValue(result, element, "managedMemoryBytes");
+        AddMetricValue(result, element, "workingSetBytes");
+        AddMetricValue(result, element, "privateMemoryBytes");
+        return result;
+    }
+
+    private static void AddMetricValue(
+        IDictionary<string, double> values,
+        JsonElement element,
+        string name)
+    {
+        if (element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDouble(out var value))
+        {
+            values[name] = value;
         }
     }
 
@@ -427,6 +506,163 @@ public static class BugTapePackageReader
         }
 
         return ticks;
+    }
+
+    private static IReadOnlyList<MetricSeries> CreateMetricSeries(
+        IReadOnlyList<BugTapeRecord> records,
+        IReadOnlyList<MetricReading> readings)
+    {
+        var validRecords = records
+            .Where(record => record.TimestampUtc > DateTimeOffset.MinValue)
+            .OrderBy(record => record.TimestampUtc)
+            .ToArray();
+        if (validRecords.Length == 0 || readings.Count == 0)
+            return Array.Empty<MetricSeries>();
+
+        var first = validRecords.First().TimestampUtc;
+        var last = validRecords.Last().TimestampUtc;
+        var durationMilliseconds = Math.Max(1.0, (last - first).TotalMilliseconds);
+
+        return new[]
+        {
+            CreateMetricSeries(
+                "cpu",
+                "CPU %",
+                "#f97316",
+                readings,
+                reading => FirstMetricValue(reading, "cpuPercent", "averageCpuPercent"),
+                first,
+                durationMilliseconds,
+                value => value),
+            CreateMetricSeries(
+                "working",
+                "Memory MB",
+                "#16a34a",
+                readings,
+                reading => FirstMetricValue(reading, "workingSetBytes"),
+                first,
+                durationMilliseconds,
+                BytesToMegabytes)
+        }.Where(series => series.Points.Count > 0).ToList();
+    }
+
+    private static MetricSeries CreateMetricSeries(
+        string key,
+        string label,
+        string brush,
+        IEnumerable<MetricReading> readings,
+        Func<MetricReading, double?> selectValue,
+        DateTimeOffset first,
+        double durationMilliseconds,
+        Func<double, double> normalizeValue)
+    {
+        var known = readings
+            .Select(reading => new MetricPoint
+            {
+                X = ((reading.TimestampUtc - first).TotalMilliseconds / durationMilliseconds) * TimelineWidth,
+                Value = selectValue(reading)
+            })
+            .Where(point => point.Value.HasValue)
+            .OrderBy(point => point.X)
+            .ToList();
+        if (known.Count == 0)
+            return new MetricSeries { Key = key, Label = label };
+
+        foreach (var point in known)
+            point.Value = normalizeValue(point.Value.Value);
+
+        var minimum = known.Min(point => point.Value.Value);
+        var maximum = known.Max(point => point.Value.Value);
+        var range = Math.Max(0.0001, maximum - minimum);
+        var graphPoints = InterpolateMetricPoints(known);
+        var points = graphPoints
+            .Select(point =>
+            {
+                var y = MetricsGraphHeight - ((point.Value.Value - minimum) / range * (MetricsGraphHeight - 10.0)) - 5.0;
+                return new Point(point.X, y);
+            })
+            .ToList();
+        var segments = new List<MetricSegment>();
+        for (var index = 1; index < points.Count; index++)
+        {
+            var previous = points[index - 1];
+            var current = points[index];
+            segments.Add(new MetricSegment
+            {
+                X1 = previous.X,
+                Y1 = previous.Y,
+                X2 = current.X,
+                Y2 = current.Y
+            });
+        }
+
+        return new MetricSeries
+        {
+            Key = key,
+            Label = label,
+            Brush = brush,
+            Points = points,
+            Segments = segments,
+            Summary = FormattableString.Invariant($"{label}: {minimum:0.##} - {maximum:0.##}")
+        };
+    }
+
+    private static IEnumerable<MetricPoint> InterpolateMetricPoints(IReadOnlyList<MetricPoint> known)
+    {
+        if (known.Count == 1)
+        {
+            yield return new MetricPoint { X = 0, Value = known[0].Value };
+            yield return new MetricPoint { X = TimelineWidth, Value = known[0].Value };
+            yield break;
+        }
+
+        var step = TimelineWidth / 200.0;
+        for (var x = 0.0; x <= TimelineWidth; x += step)
+            yield return InterpolateMetricPoint(known, x);
+
+        yield return InterpolateMetricPoint(known, TimelineWidth);
+    }
+
+    private static MetricPoint InterpolateMetricPoint(IReadOnlyList<MetricPoint> known, double x)
+    {
+        if (x <= known[0].X)
+            return new MetricPoint { X = x, Value = known[0].Value };
+        if (x >= known[known.Count - 1].X)
+            return new MetricPoint { X = x, Value = known[known.Count - 1].Value };
+
+        for (var index = 1; index < known.Count; index++)
+        {
+            var right = known[index];
+            if (x > right.X)
+                continue;
+
+            var left = known[index - 1];
+            var width = Math.Max(0.0001, right.X - left.X);
+            var fraction = (x - left.X) / width;
+            return new MetricPoint
+            {
+                X = x,
+                Value = left.Value.Value + (right.Value.Value - left.Value.Value) * fraction
+            };
+        }
+
+        return new MetricPoint { X = x, Value = known[known.Count - 1].Value };
+    }
+
+    private static double? FirstMetricValue(MetricReading reading, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (reading.Values.TryGetValue(name, out var value))
+                return value;
+        }
+
+        return null;
+    }
+
+    private static double BytesToMegabytes(double value)
+    {
+        return value / 1024.0 / 1024.0;
     }
 
     private static IReadOnlyList<TimelineTreeNode> CreateTree(
@@ -758,5 +994,19 @@ public static class BugTapePackageReader
                property.TryGetDouble(out var value)
             ? value
             : null;
+    }
+
+    private sealed class MetricReading
+    {
+        public DateTimeOffset TimestampUtc { get; set; }
+
+        public IReadOnlyDictionary<string, double> Values { get; set; } = new Dictionary<string, double>();
+    }
+
+    private sealed class MetricPoint
+    {
+        public double X { get; set; }
+
+        public double? Value { get; set; }
     }
 }

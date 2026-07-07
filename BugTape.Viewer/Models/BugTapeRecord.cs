@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System;
+using System.Collections.Generic;
 
 namespace BugTape.Viewer.Models;
 
@@ -41,4 +42,6 @@ public sealed class BugTapeRecord
     public string Summary { get; init; } = string.Empty;
 
     public string Json { get; init; } = string.Empty;
+
+    public IReadOnlyDictionary<string, double> MetricValues { get; init; } = new Dictionary<string, double>();
 }

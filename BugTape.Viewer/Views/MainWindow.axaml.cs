@@ -73,6 +73,15 @@ public partial class MainWindow : Window
         LoadSelectedPath(files[0].Path.LocalPath);
     }
 
+    private void OnMetricOverlayClicked(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+            return;
+
+        if (sender is Button button && button.Tag is string key)
+            viewModel.SelectMetric(key);
+    }
+
     private void LoadSelectedPath(string path)
     {
         if (DataContext is not MainWindowViewModel viewModel)
