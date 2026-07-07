@@ -51,31 +51,16 @@ internal static class BugTapeExporter
             .ConfigureAwait(false);
         createdFiles.Add(timelineFile);
 
-        foreach (var provider in runtime.SnapshotStateProviders())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var state = await provider.CaptureAsync(cancellationToken).ConfigureAwait(false);
-                var stateFile = GetUniqueFile(
-                    destinationDirectory,
-                    $"bugtape-state-{SanitizeName(provider.Name)}.json");
-                await WriteJsonAsync(
-                        stateFile,
-                        runtime.CaptureState(state),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                createdFiles.Add(stateFile);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures.Add(CreateFailure("state-provider", provider.Name, exception));
-            }
-        }
+        var stateFile = new FileInfo(
+            Path.Combine(destinationDirectory.FullName, "bugtape-state.json"));
+        var state = await CaptureStateProvidersAsync(
+                runtime,
+                failures,
+                exportStartedUtc,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await WriteJsonAsync(stateFile, state, cancellationToken).ConfigureAwait(false);
+        createdFiles.Add(stateFile);
 
         var filesDirectory = new DirectoryInfo(
             Path.Combine(destinationDirectory.FullName, "bugtape-files"));
@@ -184,6 +169,54 @@ internal static class BugTapeExporter
         using var input = source.Open(FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var output = destination.Open(FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         await input.CopyToAsync(output, 81920, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<JObject> CaptureStateProvidersAsync(
+        BugTapeRuntime runtime,
+        JArray failures,
+        DateTimeOffset exportStartedUtc,
+        CancellationToken cancellationToken)
+    {
+        var providers = new JArray();
+
+        foreach (var provider in runtime.SnapshotStateProviders())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var state = await provider.CaptureAsync(cancellationToken).ConfigureAwait(false);
+                providers.Add(new JObject
+                {
+                    ["name"] = provider.Name,
+                    ["status"] = "ok",
+                    ["data"] = runtime.CaptureState(state)
+                });
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                var failure = CreateFailure("state-provider", provider.Name, exception);
+                failures.Add(failure);
+                providers.Add(new JObject
+                {
+                    ["name"] = provider.Name,
+                    ["status"] = "failed",
+                    ["failure"] = new JObject(failure)
+                });
+            }
+        }
+
+        return new JObject
+        {
+            ["schemaVersion"] = 1,
+            ["format"] = "BugTape.State",
+            ["sessionId"] = runtime.Options.SessionId,
+            ["capturedUtc"] = ToIso(exportStartedUtc),
+            ["providers"] = providers
+        };
     }
 
     private static JObject CreateManifest(

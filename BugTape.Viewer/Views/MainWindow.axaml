@@ -1,0 +1,254 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BugTape.Viewer.ViewModels"
+        xmlns:models="using:BugTape.Viewer.Models"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="780"
+        x:Class="BugTape.Viewer.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="1280"
+        Height="780"
+        MinWidth="980"
+        MinHeight="640"
+        Title="BugTape Viewer">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,Auto,150,*,28" Background="#f3f4f6">
+        <Border Grid.Row="0" Background="#ffffff" BorderBrush="#d1d5db" BorderThickness="0,0,0,1" Padding="14,12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                <TextBlock Grid.Column="0"
+                           Text="BugTape"
+                           Foreground="#111827"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1"
+                         Text="{Binding PackagePath}"
+                         Watermark="Unzipped support package folder"
+                         IsReadOnly="True"
+                         Background="#ffffff"
+                         Foreground="#111827"
+                         BorderBrush="#9ca3af"
+                         VerticalAlignment="Center"/>
+                <Button Grid.Column="2"
+                        Click="OnOpenFolderClicked"
+                        ToolTip.Tip="Open an unzipped BugTape support package folder"
+                        Background="#f9fafb"
+                        Foreground="#111827"
+                        BorderBrush="#9ca3af"
+                        Padding="14,8"
+                        FontFamily="Segoe UI Symbol, Apple Color Emoji">
+                    <TextBlock Text="🗁" FontSize="18"/>
+                </Button>
+                <Button Grid.Column="3"
+                        Click="OnOpenZipClicked"
+                        ToolTip.Tip="Open a .zip file containing BugTape support package files"
+                        Background="#f9fafb"
+                        Foreground="#111827"
+                        BorderBrush="#9ca3af"
+                        Padding="14,8"
+                        FontFamily="Segoe UI Symbol, Apple Color Emoji">
+                    <TextBlock Text="🗎" FontSize="18"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="2*,*" Margin="14,12,14,8" ColumnSpacing="12">
+            <Border Grid.Column="0" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="Session" FontWeight="SemiBold" Foreground="#222831"/>
+                    <TextBlock Text="{Binding ManifestSummary}" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#3f4652"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="State" FontWeight="SemiBold" Foreground="#222831"/>
+                    <TextBlock Text="{Binding StateSummary}" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#3f4652"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Margin="14,0,14,8" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="12,10,12,4">
+                    <TextBlock Text="Timeline" FontWeight="SemiBold" Foreground="#222831"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="logs" Foreground="#805ad5"/>
+                        <TextBlock Text="actions" Foreground="#2563eb"/>
+                        <TextBlock Text="events" Foreground="#4a5568"/>
+                        <TextBlock Text="warnings/errors" Foreground="#c2410c"/>
+                    </StackPanel>
+                </Grid>
+                <ScrollViewer x:Name="TimelineScrollViewer"
+                              Grid.Row="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="False"
+                              Height="108"
+                              Margin="12,0,12,12">
+                    <Canvas Width="{Binding TimelineWidth}" Height="84" Background="#f8fafc">
+                        <ItemsControl ItemsSource="{Binding TimelineTicks}" Width="{Binding TimelineWidth}" Height="84">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas Width="{Binding TimelineWidth}" Height="84" Background="Transparent"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.Styles>
+                                <Style Selector="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                </Style>
+                            </ItemsControl.Styles>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Width="78" Height="84" Margin="-39,0,0,0">
+                                        <Border Width="1"
+                                                Height="62"
+                                                Background="#d1d5db"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Top"/>
+                                        <TextBlock Text="{Binding Label}"
+                                                   Foreground="#69707d"
+                                                   FontFamily="Consolas"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Bottom"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Canvas.Left="{Binding SelectedHighlight.Left}"
+                                Width="{Binding SelectedHighlight.Width}"
+                                Height="84"
+                                Background="#6638bdf8"
+                                IsVisible="{Binding SelectedHighlight}"/>
+                        <ItemsControl ItemsSource="{Binding TimelineMarkers}" Width="{Binding TimelineWidth}" Height="84">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas Width="{Binding TimelineWidth}" Height="84" Background="Transparent"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.Styles>
+                                <Style Selector="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                    <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                </Style>
+                            </ItemsControl.Styles>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="{Binding Width}"
+                                            Height="{Binding Height}"
+                                            Background="{Binding Brush}"
+                                            CornerRadius="2"
+                                            ToolTip.Tip="{Binding ToolTip}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" ColumnDefinitions="3*,6,2*" Margin="14,0,14,8">
+            <Border Grid.Column="0" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
+                <Grid RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" Text="Timeline Tree" Margin="12,10,12,6" FontWeight="SemiBold" Foreground="#222831"/>
+                    <TreeView Grid.Row="1"
+                              ItemsSource="{Binding TreeNodes}"
+                              SelectionChanged="OnTimelineTreeSelectionChanged"
+                              SelectedItem="{Binding SelectedTreeNode, Mode=TwoWay}"
+                              Background="#ffffff"
+                              Foreground="#222831"
+                              Margin="6">
+                        <TreeView.Styles>
+                            <Style Selector="TreeViewItem">
+                                <Setter Property="Background" Value="#ffffff"/>
+                                <Setter Property="Foreground" Value="#222831"/>
+                            </Style>
+                        </TreeView.Styles>
+                        <TreeView.DataTemplates>
+                            <TreeDataTemplate DataType="models:TimelineTreeNode" ItemsSource="{Binding Children}">
+                                <Grid ColumnDefinitions="72,16,220,*" ColumnSpacing="8" Margin="0,3" ToolTip.Tip="{Binding FullText}">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Timestamp}"
+                                               Foreground="#69707d"
+                                               FontFamily="Consolas"
+                                               FontSize="12"/>
+                                    <Border Grid.Column="1"
+                                            Width="10"
+                                            Height="10"
+                                            CornerRadius="5"
+                                            Background="{Binding Brush}"
+                                            VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Title}"
+                                               Foreground="#222831"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding Detail}"
+                                               Foreground="#69707d"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                            </TreeDataTemplate>
+                        </TreeView.DataTemplates>
+                    </TreeView>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="6"
+                          Background="#d1d5db"
+                          ResizeDirection="Columns"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"/>
+
+            <Grid Grid.Column="2" RowDefinitions="*,6,150">
+                <Border Grid.Row="0" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
+                    <Grid RowDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Text="Details" Margin="12,10,12,6" FontWeight="SemiBold" Foreground="#222831"/>
+                        <TextBox Grid.Row="1"
+                                 Text="{Binding SelectedJson}"
+                                 FontFamily="Consolas"
+                                 FontSize="12"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 Margin="8"/>
+                    </Grid>
+                </Border>
+                <GridSplitter Grid.Row="1"
+                              Height="6"
+                              Background="#d1d5db"
+                              ResizeDirection="Rows"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"/>
+
+                <Border Grid.Row="2" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4" Padding="12">
+                    <Grid RowDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Text="Log Excerpt" FontWeight="SemiBold" Foreground="#222831"/>
+                        <ScrollViewer x:Name="LogExcerptScrollViewer"
+                                      Grid.Row="1"
+                                      Margin="0,8,0,0"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBlock Text="{Binding SelectedLogExcerpt}"
+                                       FontFamily="Consolas"
+                                       FontSize="12"
+                                       TextWrapping="NoWrap"/>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="4" Background="#e7ebf0" Padding="12,5">
+            <TextBlock Text="{Binding Status}" Foreground="#3f4652"/>
+        </Border>
+    </Grid>
+</Window>

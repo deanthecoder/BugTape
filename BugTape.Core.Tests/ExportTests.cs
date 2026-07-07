@@ -59,14 +59,23 @@ public class ExportTests
         var copiedFile = new FileInfo(
             Path.Combine(outputDirectory.FullName, "bugtape-files", "application.log"));
         var stateFile = new FileInfo(
-            Path.Combine(outputDirectory.FullName, "bugtape-state-application.json"));
+            Path.Combine(outputDirectory.FullName, "bugtape-state.json"));
 
         Assert.That(files.Select(file => file.FullName), Does.Contain(copiedFile.FullName));
+        Assert.That(files.Select(file => file.FullName), Does.Contain(stateFile.FullName));
         Assert.That(await File.ReadAllTextAsync(copiedFile.FullName), Is.EqualTo("At export"));
 
         var state = JObject.Parse(await File.ReadAllTextAsync(stateFile.FullName));
-        Assert.That(state.Value<string>("Mode"), Is.EqualTo("Ready"));
-        Assert.That(state.Value<int>("ItemCount"), Is.EqualTo(3));
+        Assert.That(state.Value<string>("format"), Is.EqualTo("BugTape.State"));
+        Assert.That(
+            state.SelectToken("providers[0].name")?.Value<string>(),
+            Is.EqualTo("application"));
+        Assert.That(
+            state.SelectToken("providers[0].data.Mode")?.Value<string>(),
+            Is.EqualTo("Ready"));
+        Assert.That(
+            state.SelectToken("providers[0].data.ItemCount")?.Value<int>(),
+            Is.EqualTo(3));
     }
 
     [Test]
@@ -88,6 +97,12 @@ public class ExportTests
         Assert.That(
             manifest.SelectToken("failures[0].errorType")?.Value<string>(),
             Is.EqualTo(typeof(InvalidOperationException).FullName));
+
+        var stateFile = new FileInfo(
+            Path.Combine(outputDirectory.FullName, "bugtape-state.json"));
+        var state = JObject.Parse(await File.ReadAllTextAsync(stateFile.FullName));
+        Assert.That(state.SelectToken("providers[0].status")?.Value<string>(), Is.EqualTo("failed"));
+        Assert.That(state.SelectToken("providers[0].failure.name")?.Value<string>(), Is.EqualTo("broken"));
     }
 
     [Test]
@@ -99,10 +114,11 @@ public class ExportTests
         await Recorder.CreateSupportPackFilesAsync(outputDirectory);
 
         var stateFile = new FileInfo(
-            Path.Combine(outputDirectory.FullName, "bugtape-state-empty.json"));
+            Path.Combine(outputDirectory.FullName, "bugtape-state.json"));
         Assert.That(
-            (await File.ReadAllTextAsync(stateFile.FullName)).Trim(),
-            Is.EqualTo("null"));
+            JObject.Parse(await File.ReadAllTextAsync(stateFile.FullName))
+                .SelectToken("providers[0].data")?.Type,
+            Is.EqualTo(JTokenType.Null));
     }
 
     [Test]
