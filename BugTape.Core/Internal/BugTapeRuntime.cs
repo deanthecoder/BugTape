@@ -24,6 +24,7 @@ internal sealed class BugTapeRuntime
     private readonly LinkedList<MetricSample> m_metricSamples = new LinkedList<MetricSample>();
     private readonly List<StateProviderRegistration> m_stateProviders = new List<StateProviderRegistration>();
     private readonly List<FileInfo> m_registeredFiles = new List<FileInfo>();
+    private readonly List<UiThreadMonitor> m_uiThreadMonitors = new List<UiThreadMonitor>();
     private readonly AsyncLocal<BugTapeActionScope> m_currentAction = new AsyncLocal<BugTapeActionScope>();
     private readonly DataSnapshotter m_snapshotter;
     private readonly Timer m_metricsTimer;
@@ -217,8 +218,39 @@ internal sealed class BugTapeRuntime
             m_registeredFiles.Add(new FileInfo(file.FullName));
     }
 
+    public IDisposable MonitorUiThread(
+        Action<Action> postToUiThread,
+        BugTapeUiThreadMonitorOptions options)
+    {
+        EnsureActive();
+        if (postToUiThread == null)
+            throw new ArgumentNullException(nameof(postToUiThread));
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
+
+        var monitor = new UiThreadMonitor(
+            this,
+            postToUiThread,
+            options,
+            RemoveUiThreadMonitor);
+
+        lock (m_sync)
+        {
+            if (m_shutdown)
+            {
+                monitor.Dispose();
+                throw new InvalidOperationException("BugTape has been shut down.");
+            }
+
+            m_uiThreadMonitors.Add(monitor);
+        }
+
+        return monitor;
+    }
+
     public void Shutdown()
     {
+        List<UiThreadMonitor> monitors;
         lock (m_sync)
         {
             if (m_shutdown)
@@ -233,7 +265,12 @@ internal sealed class BugTapeRuntime
 
             m_shutdown = true;
             m_metricsTimer?.Dispose();
+            monitors = new List<UiThreadMonitor>(m_uiThreadMonitors);
+            m_uiThreadMonitors.Clear();
         }
+
+        foreach (var monitor in monitors)
+            monitor.Dispose();
     }
 
     public IReadOnlyCollection<TimelineRecord> SnapshotTimeline()
@@ -362,7 +399,7 @@ internal sealed class BugTapeRuntime
         }
     }
 
-    private void ReportDiagnostic(string message)
+    public void ReportDiagnostic(string message)
     {
         try
         {
@@ -372,6 +409,12 @@ internal sealed class BugTapeRuntime
         {
             // Host diagnostics must never interfere with recording.
         }
+    }
+
+    private void RemoveUiThreadMonitor(UiThreadMonitor monitor)
+    {
+        lock (m_sync)
+            m_uiThreadMonitors.Remove(monitor);
     }
 
     private static string ToSerializedLevel(BugTapeLogLevel level)

@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ic="using:FluentIcons.Avalonia"
         xmlns:vm="using:BugTape.Viewer.ViewModels"
         xmlns:models="using:BugTape.Viewer.Models"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -11,6 +12,7 @@
         Height="780"
         MinWidth="980"
         MinHeight="640"
+        Icon="/Assets/BugTape.png"
         Title="BugTape Viewer">
 
     <Design.DataContext>
@@ -41,13 +43,10 @@
                         Foreground="#111827"
                         BorderBrush="#9ca3af"
                         Padding="10,7">
-                    <Viewbox Width="20" Height="20">
-                        <Path Width="24"
-                              Height="24"
-                              Stretch="Uniform"
-                              Fill="#374151"
-                              Data="M10,4 L12,6 L20,6 C21.1,6 22,6.9 22,8 L22,18 C22,19.1 21.1,20 20,20 L4,20 C2.9,20 2,19.1 2,18 L2,6 C2,4.9 2.9,4 4,4 Z M4,8 L4,18 L20,18 L20,8 Z M14,10 L18,10 L18,12 L14,12 L14,15 L11,15 L11,12 L8,12 L8,10 L12,10 L12,7 L14,7 Z"/>
-                    </Viewbox>
+                    <ic:FluentIcon Icon="FolderOpen"
+                                   IconVariant="Regular"
+                                   IconSize="Size24"
+                                   Foreground="#374151"/>
                 </Button>
                 <Button Grid.Column="3"
                         Click="OnOpenZipClicked"
@@ -56,13 +55,10 @@
                         Foreground="#111827"
                         BorderBrush="#9ca3af"
                         Padding="10,7">
-                    <Viewbox Width="20" Height="20">
-                        <Path Width="24"
-                              Height="24"
-                              Stretch="Uniform"
-                              Fill="#374151"
-                              Data="M14,2 L20,8 L20,20 C20,21.1 19.1,22 18,22 L6,22 C4.9,22 4,21.1 4,20 L4,4 C4,2.9 4.9,2 6,2 Z M13,4 L6,4 L6,20 L18,20 L18,9 L13,9 Z M12,4.5 L12,10 L17.5,10 Z M8,6 L10,6 L10,8 L8,8 Z M10,8 L12,8 L12,10 L10,10 Z M8,10 L10,10 L10,12 L8,12 Z M10,12 L12,12 L12,14 L10,14 Z M8,14 L12,14 L12,18 L8,18 Z"/>
-                    </Viewbox>
+                    <ic:FluentIcon Icon="ArchiveMultiple"
+                                   IconVariant="Regular"
+                                   IconSize="Size24"
+                                   Foreground="#374151"/>
                 </Button>
             </Grid>
         </Border>
@@ -76,7 +72,7 @@
             </Border>
             <Border Grid.Column="1" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4" Padding="12">
                 <StackPanel>
-                    <TextBlock Text="State" FontWeight="SemiBold" Foreground="#222831"/>
+                    <TextBlock Text="Application Snapshot" FontWeight="SemiBold" Foreground="#222831"/>
                     <TextBlock Text="{Binding StateSummary}" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#3f4652"/>
                 </StackPanel>
             </Border>
@@ -120,7 +116,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12">
-                        <TextBlock Text="logs" Foreground="#805ad5"/>
+                        <TextBlock Text="BugTape logs" Foreground="#805ad5"/>
                         <TextBlock Text="actions" Foreground="#2563eb"/>
                         <TextBlock Text="events" Foreground="#4a5568"/>
                         <TextBlock Text="warnings/errors" Foreground="#c2410c"/>
@@ -134,10 +130,17 @@
                               Height="108"
                               Margin="12,0,12,12">
                     <Canvas Width="{Binding TimelineWidth}" Height="84" Background="#f8fafc">
-                        <ItemsControl ItemsSource="{Binding SelectedMetricSegments}" Width="{Binding TimelineWidth}" Height="84">
+                        <Border Canvas.Top="42"
+                                Width="{Binding TimelineWidth}"
+                                Height="1"
+                                Background="#e5e7eb"/>
+                        <ItemsControl Canvas.Top="44"
+                                      ItemsSource="{Binding SelectedMetricSegments}"
+                                      Width="{Binding TimelineWidth}"
+                                      Height="40">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <Canvas Width="{Binding TimelineWidth}" Height="84" Background="Transparent"/>
+                                    <Canvas Width="{Binding TimelineWidth}" Height="40" Background="Transparent"/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
@@ -165,7 +168,7 @@
                                 <DataTemplate>
                                     <Grid Width="78" Height="84" Margin="-39,0,0,0">
                                         <Border Width="1"
-                                                Height="62"
+                                                Height="42"
                                                 Background="#d1d5db"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Top"/>
@@ -198,11 +201,35 @@
                             </ItemsControl.Styles>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Width="{Binding Width}"
-                                            Height="{Binding Height}"
-                                            Background="{Binding Brush}"
-                                            CornerRadius="2"
-                                            ToolTip.Tip="{Binding ToolTip}"/>
+                                    <Grid Width="{Binding Width}"
+                                          Height="{Binding Height}"
+                                          ToolTip.Tip="{Binding ToolTip}"
+                                          Cursor="Hand"
+                                          PointerPressed="OnTimelineMarkerPointerPressed">
+                                        <Border Width="{Binding Width}"
+                                                Height="{Binding Height}"
+                                                Background="{Binding Brush}"
+                                                CornerRadius="2"
+                                                IsVisible="{Binding IsBar}"/>
+                                        <Path Width="{Binding Width}"
+                                              Height="{Binding Height}"
+                                              Stretch="Fill"
+                                              Fill="{Binding Brush}"
+                                              Data="M 0,0 L 10,0 L 5,8 Z"
+                                              IsVisible="{Binding IsWedge}"/>
+                                        <Ellipse Width="{Binding Width}"
+                                                 Height="{Binding Height}"
+                                                 Fill="#dc2626"
+                                                 IsVisible="{Binding IsError}"/>
+                                        <TextBlock Text="!"
+                                                   Foreground="#ffffff"
+                                                   FontSize="10"
+                                                   FontWeight="Bold"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,-1,0,0"
+                                                   IsVisible="{Binding IsError}"/>
+                                    </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -226,6 +253,7 @@
                             <Style Selector="TreeViewItem">
                                 <Setter Property="Background" Value="#ffffff"/>
                                 <Setter Property="Foreground" Value="#222831"/>
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                             </Style>
                         </TreeView.Styles>
                         <TreeView.DataTemplates>
@@ -268,15 +296,33 @@
             <Border Grid.Column="2" Background="#ffffff" BorderBrush="#d7dce2" BorderThickness="1" CornerRadius="4">
                 <TabControl>
                     <TabItem Header="Details">
-                        <TextBox Text="{Binding SelectedJson}"
-                                 FontFamily="Consolas"
-                                 FontSize="12"
-                                 IsReadOnly="True"
-                                 AcceptsReturn="True"
-                                 TextWrapping="NoWrap"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                 Margin="8"/>
+                        <TreeView ItemsSource="{Binding SelectedJsonNodes}"
+                                  Background="#ffffff"
+                                  Foreground="#222831"
+                                  Margin="8">
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded}"/>
+                                </Style>
+                            </TreeView.Styles>
+                            <TreeView.DataTemplates>
+                                <TreeDataTemplate DataType="models:JsonTreeNode" ItemsSource="{Binding Children}">
+                                    <Grid ColumnDefinitions="220,*" ColumnSpacing="8" Margin="0,2" ToolTip.Tip="{Binding FullText}">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding Name}"
+                                                   Foreground="#222831"
+                                                   FontWeight="SemiBold"
+                                                   FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Value}"
+                                                   Foreground="#69707d"
+                                                   FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </Grid>
+                                </TreeDataTemplate>
+                            </TreeView.DataTemplates>
+                        </TreeView>
                     </TabItem>
                     <TabItem Header="Logs">
                         <TextBox x:Name="LogExcerptTextBox"

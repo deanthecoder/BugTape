@@ -14,6 +14,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Avalonia;
 using BugTape.Viewer.Models;
@@ -23,8 +24,12 @@ namespace BugTape.Viewer.Services;
 public static class BugTapePackageReader
 {
     private const double TimelineWidth = 1800.0;
-    private const double MetricsGraphHeight = 84.0;
-    private const double MinimumActionWidth = 3.0;
+    private const double MetricsGraphHeight = 38.0;
+    private const double MinimumActionWidth = 8.0;
+    private const double PointMarkerWidth = 10.0;
+    private const double PointMarkerHeight = 8.0;
+    private const double ErrorMarkerSize = 14.0;
+    private const double ActionMarkerHeight = 16.0;
     private const int MaximumExcerptLineCount = 80;
 
     public static BugTapeSession Load(string packagePath)
@@ -69,7 +74,7 @@ public static class BugTapePackageReader
         {
             PackagePath = directory.FullName,
             ManifestSummary = CreateManifestSummary(manifestJson, records),
-            StateSummary = stateFile == null ? "No bugtape-state.json file was found." : CreateStateSummary(stateFile),
+            StateSummary = stateFile == null ? "No application snapshot was found." : CreateStateSummary(stateFile),
             Records = records,
             Markers = CreateMarkers(records, offset),
             Ticks = CreateTicks(records, offset),
@@ -104,7 +109,7 @@ public static class BugTapePackageReader
         {
             PackagePath = file.FullName,
             ManifestSummary = CreateManifestSummary(manifestJson, records),
-            StateSummary = stateEntry == null ? "No bugtape-state.json file was found." : CreateStateSummary(ReadEntryText(stateEntry)),
+            StateSummary = stateEntry == null ? "No application snapshot was found." : CreateStateSummary(ReadEntryText(stateEntry)),
             Records = records,
             Markers = CreateMarkers(records, offset),
             Ticks = CreateTicks(records, offset),
@@ -322,13 +327,13 @@ public static class BugTapePackageReader
         using var document = JsonDocument.Parse(stateJson);
         var root = document.RootElement;
         if (!root.TryGetProperty("providers", out var providers) || providers.ValueKind != JsonValueKind.Array)
-            return "State file does not contain provider sections.";
+            return "Application snapshot does not contain provider sections.";
 
         var summaries = providers.EnumerateArray()
             .Select(provider => $"{GetString(provider, "name")} ({GetString(provider, "status")})")
             .Where(value => !string.IsNullOrWhiteSpace(value));
 
-        return "State providers: " + string.Join(", ", summaries);
+        return "Snapshot providers: " + string.Join(", ", summaries);
     }
 
     private static TimeSpan GetPackageUtcOffset(string manifestJson)
@@ -463,16 +468,23 @@ public static class BugTapePackageReader
             .Select(record =>
             {
                 var isAction = record.Type == "action-start" || record.Type == "action-end";
+                var isError = IsErrorMarker(record);
+                var isBar = isAction && !isError;
+                var markerWidth = GetMarkerWidth(record, isBar, isError);
+                var markerHeight = GetMarkerHeight(isBar, isError);
 
                 return new TimelineMarker
                 {
                     Label = string.IsNullOrWhiteSpace(record.DisplayName) ? record.Type : record.DisplayName,
                     ToolTip = $"{FormatLogTime(record.TimestampUtc, offset)} {record.Type} {record.Summary}",
-                    Left = record.TimelineLeft,
-                    Top = GetMarkerTop(record),
-                    Width = isAction ? Math.Max(MinimumActionWidth, record.TimelineWidth) : 2.0,
-                    Height = isAction ? 18.0 : 28.0,
-                    Brush = GetMarkerBrush(record)
+                    Left = isBar ? record.TimelineLeft : Math.Max(0.0, record.TimelineLeft - markerWidth / 2.0),
+                    Top = isBar ? 22.0 : 4.0,
+                    Width = markerWidth,
+                    Height = markerHeight,
+                    Brush = GetMarkerBrush(record),
+                    Record = record,
+                    IsBar = isBar,
+                    IsError = isError
                 };
             })
             .ToList();
@@ -934,29 +946,64 @@ public static class BugTapePackageReader
 
     private static string MergeJson(string startJson, string endJson)
     {
-        return string.Join(
-            $"{Environment.NewLine}{Environment.NewLine}",
-            new[]
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+
+            if (!string.IsNullOrWhiteSpace(startJson))
             {
-                "Start:",
-                startJson,
-                "End:",
-                endJson
-            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                writer.WritePropertyName("Start");
+                WriteJsonValue(writer, startJson);
+            }
+
+            if (!string.IsNullOrWhiteSpace(endJson))
+            {
+                writer.WritePropertyName("End");
+                WriteJsonValue(writer, endJson);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    private static double GetMarkerTop(BugTapeRecord record)
+    private static void WriteJsonValue(Utf8JsonWriter writer, string json)
     {
-        if (record.Type == "log")
-            return 8.0;
-        if (record.Type.StartsWith("action", StringComparison.OrdinalIgnoreCase))
-            return 32.0;
-        return 58.0;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            document.RootElement.WriteTo(writer);
+        }
+        catch (JsonException)
+        {
+            writer.WriteStringValue(json);
+        }
+    }
+
+    private static double GetMarkerWidth(BugTapeRecord record, bool isBar, bool isError)
+    {
+        if (isBar)
+            return Math.Max(MinimumActionWidth, record.TimelineWidth);
+        return isError ? ErrorMarkerSize : PointMarkerWidth;
+    }
+
+    private static double GetMarkerHeight(bool isBar, bool isError)
+    {
+        if (isBar)
+            return ActionMarkerHeight;
+        return isError ? ErrorMarkerSize : PointMarkerHeight;
+    }
+
+    private static bool IsErrorMarker(BugTapeRecord record)
+    {
+        return record.Level == "error" || record.Outcome == "failed";
     }
 
     private static string GetMarkerBrush(BugTapeRecord record)
     {
-        if (record.Level == "error" || record.Outcome == "failed")
+        if (IsErrorMarker(record))
             return "#c2410c";
         if (record.Outcome == "cancelled" || record.Level == "warning")
             return "#b7791f";

@@ -9,11 +9,15 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace BugTape.Viewer.Models;
 
-public sealed class TimelineTreeNode
+public partial class TimelineTreeNode : ObservableObject
 {
+    [ObservableProperty]
+    private bool _isExpanded;
+
     public string Kind { get; init; } = string.Empty;
 
     public string Title { get; set; } = string.Empty;

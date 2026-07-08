@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using BugTape.Viewer.Models;
 using BugTape.Viewer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -88,6 +89,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<MetricSegment> SelectedMetricSegments { get; } = new();
 
+    public ObservableCollection<JsonTreeNode> SelectedJsonNodes { get; } = new();
+
     public MainWindowViewModel()
     {
         if (!string.IsNullOrWhiteSpace(PackagePath))
@@ -97,6 +100,7 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedTreeNodeChanged(TimelineTreeNode value)
     {
         SelectedJson = value?.Json ?? string.Empty;
+        RebuildSelectedJsonTree();
         SelectedLogExcerpt = value?.LogExcerpt ?? "Select a timeline item to see nearby packaged log lines.";
         SelectedHighlight = value == null
             ? null
@@ -116,6 +120,23 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         SelectedMetricKey = string.IsNullOrWhiteSpace(key) ? "cpu" : key;
         UpdateSelectedMetric();
+    }
+
+    public bool SelectTimelineMarker(TimelineMarker marker)
+    {
+        if (marker?.Record == null)
+            return false;
+
+        var path = FindNodePathForRecord(TreeNodes, marker.Record);
+        if (path.Count == 0)
+            return false;
+
+        foreach (var parent in path.Take(path.Count - 1))
+            parent.IsExpanded = true;
+
+        var node = path[path.Count - 1];
+        SelectedTreeNode = node;
+        return true;
     }
 
     [RelayCommand]
@@ -159,6 +180,7 @@ public partial class MainWindowViewModel : ViewModelBase
             UpdateSelectedMetric();
             TreeNodes.Clear();
             SelectedTreeNode = null;
+            RebuildSelectedJsonTree();
             ManifestSummary = "No package loaded.";
             StateSummary = string.Empty;
             SelectedLogExcerpt = "Select a timeline item to see nearby packaged log lines.";
@@ -191,5 +213,113 @@ public partial class MainWindowViewModel : ViewModelBase
             SelectedMetricSegments.Add(segment);
         SelectedMetricSummary = series.Summary;
         SelectedMetricBrush = series.Brush;
+    }
+
+    private void RebuildSelectedJsonTree()
+    {
+        SelectedJsonNodes.Clear();
+        if (string.IsNullOrWhiteSpace(SelectedJson))
+            return;
+
+        try
+        {
+            using var document = JsonDocument.Parse(SelectedJson);
+            SelectedJsonNodes.Add(CreateJsonNode("root", document.RootElement, true));
+        }
+        catch (JsonException exception)
+        {
+            SelectedJsonNodes.Add(new JsonTreeNode
+            {
+                Name = "Invalid JSON",
+                Value = exception.Message,
+                Kind = "error"
+            });
+        }
+    }
+
+    private static JsonTreeNode CreateJsonNode(string name, JsonElement element, bool isExpanded = false)
+    {
+        var node = new JsonTreeNode
+        {
+            Name = name,
+            Kind = element.ValueKind.ToString(),
+            Value = GetJsonNodeValue(element),
+            IsExpanded = isExpanded
+        };
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+                node.Children.Add(CreateJsonNode(property.Name, property.Value));
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var item in element.EnumerateArray())
+            {
+                node.Children.Add(CreateJsonNode($"[{index}]", item));
+                index++;
+            }
+        }
+
+        return node;
+    }
+
+    private static string GetJsonNodeValue(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                return "{ }";
+            case JsonValueKind.Array:
+                return $"[{element.GetArrayLength()}]";
+            case JsonValueKind.String:
+                return element.GetString() ?? string.Empty;
+            case JsonValueKind.Number:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                return element.ToString();
+            default:
+                return string.Empty;
+        }
+    }
+
+    private static List<TimelineTreeNode> FindNodePathForRecord(IEnumerable<TimelineTreeNode> nodes, BugTapeRecord record)
+    {
+        var path = new List<TimelineTreeNode>();
+        return TryFindNodePathForRecord(nodes, record, path)
+            ? path
+            : new List<TimelineTreeNode>();
+    }
+
+    private static bool TryFindNodePathForRecord(
+        IEnumerable<TimelineTreeNode> nodes,
+        BugTapeRecord record,
+        ICollection<TimelineTreeNode> path)
+    {
+        foreach (var node in nodes)
+        {
+            if (ReferenceEquals(node.Record, record) || IsActionEndForNode(node, record))
+            {
+                path.Add(node);
+                return true;
+            }
+
+            path.Add(node);
+            if (TryFindNodePathForRecord(node.Children, record, path))
+                return true;
+            path.Remove(node);
+        }
+
+        return false;
+    }
+
+    private static bool IsActionEndForNode(TimelineTreeNode node, BugTapeRecord record)
+    {
+        return record.Type == "action-end" &&
+               node.Record?.Type == "action-start" &&
+               !string.IsNullOrWhiteSpace(record.ActionId) &&
+               record.ActionId == node.Record.ActionId;
     }
 }

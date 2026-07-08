@@ -25,4 +25,12 @@ public sealed class TimelineMarker
     public double Height { get; init; }
 
     public string Brush { get; init; } = "#69707d";
+
+    public BugTapeRecord Record { get; init; }
+
+    public bool IsBar { get; init; }
+
+    public bool IsError { get; init; }
+
+    public bool IsWedge => !IsBar && !IsError;
 }

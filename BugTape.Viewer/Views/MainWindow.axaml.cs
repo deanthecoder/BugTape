@@ -11,6 +11,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -80,6 +81,22 @@ public partial class MainWindow : Window
 
         if (sender is Button button && button.Tag is string key)
             viewModel.SelectMetric(key);
+    }
+
+    private void OnTimelineMarkerPointerPressed(object sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+            return;
+
+        if (sender is not Control control || control.DataContext is not TimelineMarker marker)
+            return;
+
+        if (!viewModel.SelectTimelineMarker(marker) || viewModel.SelectedTreeNode == null)
+            return;
+
+        ScrollTimelineTo(viewModel.SelectedTreeNode);
+        ScrollLogExcerptToTop();
+        e.Handled = true;
     }
 
     private void LoadSelectedPath(string path)

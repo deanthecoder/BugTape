@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Folder Include="Models\" />
+    <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,5 +25,6 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.1" />
+    <PackageReference Include="FluentIcons.Avalonia" Version="1.1.278" />
   </ItemGroup>
 </Project>

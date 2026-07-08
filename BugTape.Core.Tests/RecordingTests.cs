@@ -195,6 +195,41 @@ public class RecordingTests
     }
 
     [Test]
+    public async Task UiThreadMonitorRecordsDelayedHeartbeat()
+    {
+        Initialize();
+        Action heartbeat = null;
+        using var posted = new ManualResetEventSlim();
+        using var monitor = Recorder.MonitorUiThread(
+            callback =>
+            {
+                heartbeat = callback;
+                posted.Set();
+            },
+            new BugTapeUiThreadMonitorOptions
+            {
+                SampleInterval = TimeSpan.FromMilliseconds(10),
+                WarningThreshold = TimeSpan.FromMilliseconds(1),
+                ErrorThreshold = TimeSpan.FromMilliseconds(5)
+            });
+
+        Assert.That(posted.Wait(TimeSpan.FromSeconds(2)), Is.True);
+
+        await Task.Delay(30);
+        heartbeat();
+
+        var records = await ExportTimelineAsync();
+        var uiDelay = records.Single(record =>
+            record.Value<string>("message") == "UI thread heartbeat delayed.");
+
+        Assert.That(uiDelay.Value<string>("type"), Is.EqualTo("log"));
+        Assert.That(uiDelay.Value<string>("level"), Is.EqualTo("error"));
+        Assert.That(
+            uiDelay.SelectToken("data.DelayMilliseconds")?.Value<double>(),
+            Is.GreaterThanOrEqualTo(5));
+    }
+
+    [Test]
     public async Task TimelineDiscardsOldestRecordsAtConfiguredLimit()
     {
         Initialize(maxEventCount: 3);

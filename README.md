@@ -201,6 +201,12 @@ BugTape.RegisterFile(logFile);
 // Provider failures are reported in the manifest and do not abort the export.
 BugTape.RegisterStateProvider("application", () => GetApplicationState());
 
+// Monitor UI responsiveness without BugTape depending on WPF or Avalonia.
+// Store the returned IDisposable for the app lifetime; do not let it go out of
+// scope immediately after startup.
+m_bugTapeUiMonitor = BugTape.MonitorUiThread(
+    callback => Dispatcher.UIThread.Post(callback));
+
 // Record a named operation, its input metadata, duration, result, and any
 // correlated BugTape events or logs. TrackAsync marks the action as failed and
 // rethrows if ProcessAsync throws.
@@ -233,6 +239,8 @@ Minimum public API:
 - `BugTape.Log(BugTapeLogLevel level, string message, Exception exception,
   object data = null)`
 - `IRecordedAction BugTape.StartAction(string name, object data = null)`
+- `IDisposable BugTape.MonitorUiThread(Action<Action> postToUiThread,
+  BugTapeUiThreadMonitorOptions options = null)`
 - `BugTape.Track(string name, Action action, object data = null)`
 - `BugTape.Track<T>(string name, Func<T> action, object data = null)`
 - `BugTape.TrackAsync(string name, Func<Task> action, object data = null)`
@@ -254,6 +262,42 @@ are subject to inclusion and size policy, but their contents are copied
 byte-for-byte by default; callers must redact sensitive file contents before
 registration in the current release. BugTape preserves the source filename and
 adds a numeric suffix if multiple registered files have the same name.
+
+`MonitorUiThread` detects UI stalls by periodically asking the host application
+to post a tiny heartbeat callback to its UI dispatcher. BugTape measures how
+long the callback takes to run and records a warning or error log event when the
+delay exceeds the configured thresholds. The API deliberately accepts
+`Action<Action>` rather than referencing WPF, Avalonia, or WinForms directly, so
+the host keeps ownership of UI-thread integration.
+
+WPF example:
+
+```csharp
+private IDisposable m_bugTapeUiMonitor;
+
+// Start this once after BugTape.Initialize, usually from App.OnStartup.
+m_bugTapeUiMonitor = BugTape.MonitorUiThread(
+    callback => Application.Current.Dispatcher.BeginInvoke(callback));
+```
+
+Avalonia example:
+
+```csharp
+private IDisposable m_bugTapeUiMonitor;
+
+// Start this once after BugTape.Initialize, usually from App startup.
+m_bugTapeUiMonitor = BugTape.MonitorUiThread(
+    callback => Dispatcher.UIThread.Post(callback));
+```
+
+The supplied callback must be posted asynchronously to the UI thread. Calling it
+inline would make the heartbeat appear immediately responsive and would hide the
+very stalls the monitor is intended to detect.
+
+Keep the returned monitor alive for as long as UI responsiveness should be
+tracked. A field on the application/bootstrap class is usually sufficient. It is
+safe to dispose the monitor during clean application shutdown before calling
+`BugTape.Shutdown()`.
 
 `CreateSupportPackFilesAsync` is important for applications whose existing
 support-package command already owns the final zip. The method returns

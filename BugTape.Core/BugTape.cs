@@ -146,6 +146,31 @@ public static class BugTape
     }
 
     /// <summary>
+    /// Monitors UI-thread responsiveness using a host-provided dispatcher callback.
+    /// </summary>
+    /// <param name="postToUiThread">
+    /// A callback that asynchronously posts the supplied action to the application's UI thread.
+    /// </param>
+    /// <param name="options">Optional sampling interval and delay thresholds.</param>
+    /// <returns>An object that stops monitoring when disposed.</returns>
+    /// <remarks>
+    /// BugTape does not reference WPF, Avalonia, or WinForms directly. The host
+    /// application owns the UI dispatcher integration, for example by calling
+    /// WPF's Dispatcher.BeginInvoke or Avalonia's Dispatcher.UIThread.Post.
+    /// </remarks>
+    public static IDisposable MonitorUiThread(
+        Action<Action> postToUiThread,
+        BugTapeUiThreadMonitorOptions options = null)
+    {
+        if (postToUiThread == null)
+            throw new ArgumentNullException(nameof(postToUiThread));
+
+        return GetRuntime().MonitorUiThread(
+            postToUiThread,
+            (options ?? new BugTapeUiThreadMonitorOptions()).Snapshot());
+    }
+
+    /// <summary>
     /// Runs and records a synchronous action.
     /// </summary>
     /// <param name="name">The stable action name.</param>
