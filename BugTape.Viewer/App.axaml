@@ -2,7 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="BugTape.Viewer.App"
              xmlns:local="using:BugTape.Viewer"
-             RequestedThemeVariant="Light">
+             RequestedThemeVariant="Light"
+             Name="BugTape">
 
     <Application.DataTemplates>
         <local:ViewLocator/>
